@@ -266,7 +266,7 @@ with st.sidebar:
             ev_ac != st.session_state.dynamic_ev['AC'] or
             ev_soc/100 != st.session_state.ev_soc):
             st.session_state.simulation_just_run = False
-            st.session_state.simulation_results = None
+            # Don't clear simulation_results - let them persist
 
     # Charger Configuration
     with st.expander("🔌 Charger Configuration", expanded=False):
@@ -291,7 +291,7 @@ with st.sidebar:
         if (ac_rate != st.session_state.charger_config['ac_rate'] or 
             ac_count != st.session_state.charger_config['ac_count']):
             st.session_state.simulation_just_run = False
-            st.session_state.simulation_results = None
+            # Don't clear simulation_results - let them persist
 
     # Time Control Menu
     with st.expander("⏰ Time Control", expanded=False):
@@ -1167,7 +1167,7 @@ with st.sidebar:
 
         # Clear simulation results if time of use parameters changed
         st.session_state.simulation_just_run = False
-        st.session_state.simulation_results = None
+        # Don't clear simulation_results - let them persist
         
         # PV + Battery configuration
         if 'pv_battery' in active_strategies:
@@ -1314,7 +1314,7 @@ with st.sidebar:
             
             # Clear simulation results if PV battery parameters changed
             st.session_state.simulation_just_run = False
-            st.session_state.simulation_results = None
+            # Don't clear simulation_results - let them persist
 
         # Grid-Charged Batteries configuration
         if 'grid_battery' in active_strategies:
@@ -1422,7 +1422,7 @@ with st.sidebar:
             
             # Clear simulation results if grid battery parameters changed
             st.session_state.simulation_just_run = False
-            st.session_state.simulation_results = None
+            # Don't clear simulation_results - let them persist
         
         # V2G (Vehicle-to-Grid) configuration
         if 'v2g' in active_strategies:
@@ -1547,7 +1547,7 @@ with st.sidebar:
             
             # Clear simulation results if V2G parameters changed
             st.session_state.simulation_just_run = False
-            st.session_state.simulation_results = None
+            # Don't clear simulation_results - let them persist
 
 
     # EV Number Calculator
@@ -1648,9 +1648,13 @@ with st.sidebar:
             selected_dataset = st.selectbox(
                 "Select Dataset", 
                 dataset_files,
-                index=dataset_files.index(st.session_state.selected_dataset)
+                index=dataset_files.index(st.session_state.selected_dataset),
+                key="dataset_selection"
             )
-            st.session_state.selected_dataset = selected_dataset
+            # Update session state immediately when dataset changes
+            if selected_dataset != st.session_state.selected_dataset:
+                st.session_state.selected_dataset = selected_dataset
+                st.rerun()
             
             if selected_dataset:
                 try:
@@ -1677,9 +1681,13 @@ with st.sidebar:
                             "Select Date",
                             value=st.session_state.selected_date,
                             min_value=date_min.date(),
-                            max_value=date_max.date()
+                            max_value=date_max.date(),
+                            key="dataset_date_input"
                         )
-                        st.session_state.selected_date = selected_date
+                        # Update session state immediately when date changes
+                        if selected_date != st.session_state.selected_date:
+                            st.session_state.selected_date = selected_date
+                            st.rerun()
                         
                         if selected_date:
                             # Filter data for selected date
@@ -1689,6 +1697,48 @@ with st.sidebar:
                                 # Extract power values (3rd column, index 2) - no scaling here
                                 power_values = day_data.iloc[:, 2].values
                                 st.write(f"Grid power profile loaded: {len(power_values)} data points")
+                                
+                                # Debug: Show first few values to understand data structure
+                                st.write(f"**Data Preview:** First 10 values: {power_values[:10]}")
+                                st.write(f"**Data Range:** Min: {np.min(power_values):.2f}, Max: {np.max(power_values):.2f}")
+                                
+                                # Display dataset curve summary and preview
+                                st.write("**📊 Dataset Curve Summary:**")
+                                st.success(f"✅ Dataset load curve ready!")
+                                st.write(f"**Loaded Profile:** {len(power_values)} data points")
+                                st.write(f"**Mean Load:** {np.mean(power_values):.2f} kW")
+                                st.write(f"**Max Load:** {np.max(power_values):.2f} kW")
+                                st.write(f"**Min Load:** {np.min(power_values):.2f} kW")
+                                st.write(f"**Dataset:** {selected_dataset}")
+                                st.write(f"**Date:** {selected_date}")
+                                
+                                # Show curve preview
+                                fig, ax = plt.subplots(figsize=(10, 4))
+                                
+                                # Calculate time axis based on actual data length
+                                # Assuming data covers 24 hours, calculate interval
+                                total_hours = 24
+                                data_points = len(power_values)
+                                interval_minutes = (total_hours * 60) / data_points
+                                
+                                # Create time axis in hours
+                                time_hours = np.arange(len(power_values)) * interval_minutes / 60
+                                
+                                # Plot the data
+                                ax.plot(time_hours, power_values, linewidth=1, alpha=0.8, color='blue')
+                                ax.set_title("Dataset Load Curve Preview")
+                                ax.set_xlabel("Time (hours)")
+                                ax.set_ylabel("Load (kW)")
+                                ax.grid(True, alpha=0.3)
+                                
+                                # Set x-axis to show the actual time range
+                                ax.set_xlim(0, total_hours)
+                                
+                                # Add debug info
+                                st.write(f"**Debug Info:** {data_points} points, {interval_minutes:.1f} min intervals")
+                                
+                                st.pyplot(fig)
+                                plt.close()
                             else:
                                 st.error("No data found for selected date")
                                 power_values = None
@@ -1887,6 +1937,10 @@ with col1:
     st.header("📈 Simulation Results")
     
     if st.button("🚀 Run Simulation"):
+        # Clear any existing results first
+        if 'simulation_results' in st.session_state:
+            del st.session_state.simulation_results
+        
         # Update session state with current values
         st.session_state.dynamic_ev = {
             'capacity': st.session_state.dynamic_ev['capacity'],
@@ -2596,7 +2650,7 @@ with col1:
                 CHARGER_MODELS.update(original_charger_models)
     
     # Display simulation results if available
-    if st.session_state.simulation_just_run and 'simulation_results' in st.session_state and st.session_state.simulation_results is not None:
+    if ('simulation_results' in st.session_state and st.session_state.simulation_results is not None):
         results = st.session_state.simulation_results
         
         st.success("Simulation completed successfully!")
@@ -2606,17 +2660,17 @@ with col1:
         col_controls1, col_controls2, col_controls3 = st.columns(3)
         
         with col_controls1:
-            show_battery_effects = st.checkbox("Show Battery Effects", value=True, 
+            show_battery_effects = st.checkbox("Show Battery Effects", value=True, key="show_battery_effects",
                                              help="Display PV battery, grid battery, and V2G effects on the graph")
-            show_average_line = st.checkbox("Show Average Line", value=True,
+            show_average_line = st.checkbox("Show Average Line", value=True, key="show_average_line",
                                           help="Display horizontal average line on the bottom graph")
         
         with col_controls2:
-            show_legend = st.checkbox("Show Legend", value=True,
+            show_legend = st.checkbox("Show Legend", value=True, key="show_legend",
                                     help="Display graph legend")
         
         with col_controls3:
-            show_safety_margin = st.checkbox("Show Safety Margin", value=True,
+            show_safety_margin = st.checkbox("Show Safety Margin", value=True, key="show_safety_margin",
                                            help="Display 20% safety margin line")
         
         # Plot results with two subplots
@@ -2635,7 +2689,6 @@ with col1:
             
             # 2. Battery Effects (charging and discharging)
             if show_battery_effects:
-                pv_support = results.get('pv_battery_support') if results.get('pv_battery_applied', False) else None
                 pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
                 grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
                 v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
@@ -2645,13 +2698,24 @@ with col1:
                 pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
                 pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
                 
-                # PV direct system support (green shading - direct solar energy)
-                if pv_direct_support is not None:
+                # PV direct system support (lightgreen shading - PV discharge during the day)
+                if pv_direct_support is not None and np.any(pv_direct_support > 0):
                     ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + pv_direct_support, 
                                    color='lightgreen', alpha=0.4, label='PV Direct System Support')
                 
+                # 3. Battery Charging Effects (separate PV and Grid charging)
+                if pv_charge is not None and np.any(pv_charge > 0):
+                    # PV battery charging (orange shading - above red line to show extra energy)
+                    ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + pv_charge, 
+                                   color='orange', alpha=0.4, label='PV Battery Charging (Extra Energy)')
+                
+                if grid_charge is not None and np.any(grid_charge > 0):
+                    # Grid battery charging (lightcoral shading - reduces grid capacity)
+                    ax1.fill_between(grid_time, results['original_grid_limit'] - grid_charge, results['original_grid_limit'], 
+                                   color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
+                
                 # Combine all battery discharging effects (PV battery + grid battery + V2G discharge)
-                has_battery_discharge_effects = (pv_battery_discharge is not None) or (grid_discharge is not None) or (v2g_discharge is not None)
+                has_battery_discharge_effects = (pv_battery_discharge is not None and np.any(pv_battery_discharge > 0)) or (grid_discharge is not None and np.any(grid_discharge > 0)) or (v2g_discharge is not None and np.any(v2g_discharge > 0))
                 if has_battery_discharge_effects:
                     combined_battery_discharge = np.zeros_like(results['original_grid_limit'])
                     if pv_battery_discharge is not None:
@@ -2661,20 +2725,9 @@ with col1:
                     if v2g_discharge is not None:
                         combined_battery_discharge += v2g_discharge
                     
-                    # Plot combined battery discharging effects
+                    # Plot combined battery discharging effects (light blue color for battery discharge during peak)
                     ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + combined_battery_discharge, 
                                    color='#87CEEB', alpha=0.4, label='Battery Discharge Effects (Combined)')
-                
-                # 3. Battery Charging Effects (separate PV and Grid charging)
-                if pv_charge is not None:
-                    # PV battery charging (orange shading - above red line to show extra energy)
-                    ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + pv_charge, 
-                                   color='orange', alpha=0.4, label='PV Battery Charging (Extra Energy)')
-                
-                if grid_charge is not None:
-                    # Grid battery charging (red shading - reduces grid capacity)
-                    ax1.fill_between(grid_time, results['original_grid_limit'] - grid_charge, results['original_grid_limit'], 
-                                   color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
             
             # 4. Grid Limit with margin (orange dashed line)
             safety_percentage = st.session_state.get('available_load_fraction', 0.8) * 100
@@ -2884,7 +2937,7 @@ with col1:
 
 # Information panel on the right (only shown when no simulation has been run)
 with col2:
-    if st.session_state.simulation_just_run and 'simulation_results' in st.session_state and st.session_state.simulation_results is not None:
+    if ('simulation_results' in st.session_state and st.session_state.simulation_results is not None):
         st.header("ℹ️ Simulation Information")
         
         results = st.session_state.simulation_results
@@ -2911,12 +2964,49 @@ with col2:
             if peak['enabled']:
                 st.write(f"• **{peak['name']}:** {peak['quantity']} EVs at {peak['time']}:00 ± {peak['span']}h")
         
+        # Active Strategies Summary
+        active_strategies = st.session_state.get('active_strategies', [])
+        if active_strategies:
+            st.markdown("**🎯 Active Strategies**")
+            for strategy in active_strategies:
+                if strategy == 'smart_charging':
+                    st.write(f"• **Smart Charging:** {results.get('smart_charging_percent', 0)}% adoption")
+                elif strategy == 'pv_battery':
+                    st.write(f"• **PV + Battery:** {results.get('pv_adoption_percent', 0)}% adoption")
+                elif strategy == 'grid_battery':
+                    st.write(f"• **Grid Battery:** {results.get('grid_battery_adoption_percent', 0)}% adoption")
+                elif strategy == 'v2g':
+                    st.write(f"• **V2G:** {results.get('v2g_adoption_percent', 0)}% adoption")
+                elif strategy == 'time_of_use':
+                    st.write(f"• **Time of Use:** Active")
+        
+        # Grid Mode
+        st.markdown("**⚡ Grid Configuration**")
+        st.write(f"• **Grid Mode:** {results.get('grid_mode', 'Reference Only')}")
+        if results.get('grid_mode') == "Grid Constrained":
+            st.write(f"• **Safety Margin:** {st.session_state.get('available_load_fraction', 0.8) * 100:.0f}%")
+        
         # Rejection Information
-        if results['rejected_evs']:
+        if results.get('rejected_evs'):
             st.markdown("**❌ Rejection Information**")
             st.write(f"• **Rejected EVs:** {len(results['rejected_evs'])}")
             st.write(f"• **Rejection Rate:** {len(results['rejected_evs']) / results['total_evs'] * 100:.1f}%")
         
     else:
         st.header("ℹ️ Information")
-        st.write("**Click 'Run Simulation' to see configuration summary**") 
+        st.write("**How to use this simulation:**")
+        st.write("**Option A:** Apply a scenario (recommended for quick start)")
+        st.write("**Option B:** Manual configuration:")
+        st.write("1. **Configure EVs** - Select EV model and initial charge level")
+        st.write("2. **Configure Chargers** - Select charger type and count")
+        st.write("3. **Set Time Control** - Configure simulation duration and charging peaks")
+        st.write("**Then (for both options):**")
+        st.write("4. **Enable Strategies** - Activate PV, V2G, or other optimization strategies")
+        st.write("5. **Select Data** - Choose real dataset or generate synthetic load curves")
+        st.write("6. **Run Simulation** - Execute the simulation and view results")
+        
+        st.write("**📊 Results include:**")
+        st.write("• Grid load curves")
+        st.write("• EV charging patterns")
+        st.write("• Optimization strategy effects")
+        st.write("• Peak demand analysis")
