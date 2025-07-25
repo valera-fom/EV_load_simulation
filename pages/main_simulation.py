@@ -818,12 +818,23 @@ with st.sidebar:
             if 'time_of_use_timeline' not in st.session_state:
                 st.session_state.time_of_use_timeline = {
                     'periods': [
-                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 0, 'hours': list(range(2, 6))},
-                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 0, 'hours': list(range(0, 2)) + list(range(6, 8)) + list(range(22, 24))},
-                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 0, 'hours': list(range(8, 18)) + list(range(21, 22))},
-                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 100, 'hours': list(range(18, 21))}
+                                    {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 0, 'hours': list(range(2, 6))},
+            {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 0, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+            {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 0, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+            {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 100, 'hours': list(range(9, 11)) + list(range(18, 21))}
                     ],
                     'selected_period': 0
+                }
+            
+            # Store original timeline if not already stored
+            if 'original_timeline' not in st.session_state:
+                st.session_state.original_timeline = {
+                    'periods': [
+                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 0, 'hours': list(range(2, 6))},
+                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 0, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 0, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 100, 'hours': list(range(9, 11)) + list(range(18, 21))}
+                    ]
                 }
             
             timeline = st.session_state.time_of_use_timeline
@@ -877,16 +888,66 @@ with st.sidebar:
             else:
                 st.success(f"✅ Total adoption is {total_adoption}%")
             
-            # 24-Hour Timeline with dropdowns
-            st.write("**24-Hour Timeline:**")
-            st.write("Select period for each hour:")
             
-            # Create 4 rows of 6 columns for the timeline
+            # Add period legend in 2 columns (compressed)
+            legend_col1, legend_col2 = st.columns(2)
+            with legend_col1:
+                st.markdown("**Period Legend:**")
+                st.markdown("- **S** = Super Off-Peak")
+                st.markdown("- **O** = Off-Peak")
+            with legend_col2:
+                st.markdown("&nbsp;")  # Empty space for alignment
+                st.markdown("- **M** = Mid-Peak")
+                st.markdown("- **P** = Peak")
+            
+            # Add custom CSS to reduce vertical spacing
+            st.markdown("""
+            <style>
+            /* Reduce spacing in legend */
+            .stMarkdown {
+                margin-bottom: 0.5rem !important;
+            }
+            .stMarkdown p {
+                margin-bottom: 0.2rem !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Create period options for dropdown with single letter names
+            period_options = []
+            period_name_mapping = {}
+            for period in timeline['periods']:
+                if period['name'] == "Super Off-Peak":
+                    short_name = "S"
+                elif period['name'] == "Off-Peak":
+                    short_name = "O"
+                elif period['name'] == "Mid-Peak":
+                    short_name = "M"
+                elif period['name'] == "Peak":
+                    short_name = "P"
+                else:
+                    short_name = period['name'][0]
+                
+                period_options.append(short_name)
+                period_name_mapping[short_name] = period['name']
+
+   # 24-Hour Timeline with 4-column grid layout
+            st.write("**24-Hour Timeline:**")
+          
+
+            # Create 4 rows with 6 columns each (inverted layout)
             for row in range(4):
                 cols = st.columns(6)
+                
+                # Row 1: Hours 1-6
+                # Row 2: Hours 7-12
+                # Row 3: Hours 13-18
+                # Row 4: Hours 19-24
+                
                 for col in range(6):
-                    hour = row * 6 + col
-                    if hour < 24:
+                    hour = row * 6 + col + 1
+                    
+                    with cols[col]:
                         # Find which period this hour belongs to
                         period_idx = None
                         for j, period in enumerate(timeline['periods']):
@@ -894,103 +955,181 @@ with st.sidebar:
                                 period_idx = j
                                 break
                         
-                        # Create dropdown for each hour with colored background
-                        with cols[col]:
-                            # Determine current selection and color
+                        # Determine current selection and color
+                        if period_idx is not None:
+                            current_selection = timeline['periods'][period_idx]['name']
+                            bg_color = timeline['periods'][period_idx]['color']
+                        else:
+                            # Default to first period if not assigned
+                            current_selection = timeline['periods'][0]['name']
+                            bg_color = timeline['periods'][0]['color']
+                            # Add to default period
+                            timeline['periods'][0]['hours'].append(hour)
+                        
+                        # Initialize session state for hour assignments if not exists (scenario-independent)
+                        if 'hour_assignments' not in st.session_state:
+                            st.session_state.hour_assignments = {}
+                        
+                        # Get the current period assignment for this hour (from session state or timeline)
+                        # Use timeline default if no session state assignment exists
+                        current_period_name = st.session_state.hour_assignments.get(hour, current_selection)
+                        
+                        # Find the period index for the current assignment
+                        current_period_idx = None
+                        for j, period in enumerate(timeline['periods']):
+                            if period['name'] == current_period_name:
+                                current_period_idx = j
+                                break
+                        
+                        if current_period_idx is not None:
+                            current_bg_color = timeline['periods'][current_period_idx]['color']
+                        else:
+                            # Fallback to first period if assignment not found
+                            current_bg_color = timeline['periods'][0]['color']
+                            current_period_name = timeline['periods'][0]['name']
+                        
+                        # Create colored hour block FIRST (above dropdown)
+                        st.markdown(f"""
+                        <div style="
+                            background-color: {current_bg_color};
+                            border: 1px solid #ccc;
+                            border-radius: 5px;
+                            padding: 8px;
+                            margin: 4px 0;
+                            text-align: center;
+                            color: {'black' if _is_light_color(current_bg_color) else 'white'};
+                            font-weight: bold;
+                            font-size: 14px;
+                        ">
+                            {hour:02.0f}h
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Create dropdown for period selection BELOW the block
+                        dropdown_key = f"hour_{hour}_dropdown"
+                        
+                        # Convert current selection to short name for dropdown
+                        current_short_name = None
+                        for short_name, full_name in period_name_mapping.items():
+                            if full_name == current_period_name:
+                                current_short_name = short_name
+                                break
+                        
+                        # Add custom CSS to hide dropdown arrow and prevent text truncation
+                        st.markdown(f"""
+                        <style>
+                        /* Remove dropdown arrow from all selectboxes */
+                        .stSelectbox > div > div > div > div {{
+                            background-image: none !important;
+                        }}
+                        .stSelectbox > div > div > div > div::after {{
+                            display: none !important;
+                        }}
+                        .stSelectbox > div > div > div > div::before {{
+                            display: none !important;
+                        }}
+                        /* Alternative selectors */
+                        div[data-testid="stSelectbox"] select {{
+                            -webkit-appearance: none !important;
+                            -moz-appearance: none !important;
+                            appearance: none !important;
+                            background-image: none !important;
+                            background: none !important;
+                        }}
+                        /* Hide any SVG or icon elements */
+                        .stSelectbox svg {{
+                            display: none !important;
+                        }}
+                        .stSelectbox path {{
+                            display: none !important;
+                        }}
+                        /* Allow text to overflow and be cut off in dropdowns */
+                        .stSelectbox select {{
+                            text-overflow: clip !important;
+                            white-space: nowrap !important;
+                            overflow: hidden !important;
+                        }}
+                        </style>
+                        """, unsafe_allow_html=True)
+                        
+                        # Use dropdown with custom CSS to hide arrow
+                        selected_short_period = st.selectbox(
+                            "Period",
+                            options=period_options,
+                            index=period_options.index(current_short_name) if current_short_name else 0,
+                            key=dropdown_key,
+                            label_visibility="collapsed"
+                        )
+                        
+                        # Convert back to full period name
+                        selected_period = period_name_mapping[selected_short_period]
+                        
+                        # Update session state and period assignments immediately
+                        if selected_period != current_period_name:
+                            # Update session state
+                            st.session_state.hour_assignments[hour] = selected_period
+                            
+                            # Remove from current period
                             if period_idx is not None:
-                                current_selection = timeline['periods'][period_idx]['name']
-                                bg_color = timeline['periods'][period_idx]['color']
-                            else:
-                                current_selection = "Unassigned"
-                                bg_color = 'transparent'
+                                timeline['periods'][period_idx]['hours'].remove(hour)
                             
-                            # Create colored background for the hour
-                            if bg_color != 'transparent':
-                                st.markdown(f"""
-                                <div style="
-                                    background-color: {bg_color};
-                                    border: 1px solid #ccc;
-                                    border-radius: 3px;
-                                    padding: 5px;
-                                    margin: 2px 0;
-                                    text-align: center;
-                                    color: {'black' if _is_light_color(bg_color) else 'white'};
-                                    font-weight: bold;
-                                ">
-                                    {hour:02.0f}h
-                                </div>
-                                """, unsafe_allow_html=True)
-                            else:
-                                st.write(f"**{hour:02.0f}h:**")
+                            # Add to new period
+                            for j, period in enumerate(timeline['periods']):
+                                if period['name'] == selected_period:
+                                    period['hours'].append(hour)
+                                    break
                             
-                            # Create small button that cycles through periods
-                            # Determine current period index for cycling
-                            if period_idx is not None:
-                                current_period_index = period_idx
-                            else:
-                                current_period_index = -1  # -1 means unassigned
-                            
-                            # Create button text based on current period with shorter abbreviations
-                            if current_period_index >= 0:
-                                period_name = timeline['periods'][current_period_index]['name']
-                                if period_name == "Super Off-Peak":
-                                    button_text = "SOP"
-                                elif period_name == "Off-Peak":
-                                    button_text = "OP"
-                                elif period_name == "Mid-Peak":
-                                    button_text = "MP"
-                                elif period_name == "Peak":
-                                    button_text = "P"
-                                else:
-                                    button_text = period_name[:3]
-                            else:
-                                button_text = "---"
-                            
-                            # Small button to cycle through periods with immediate visual feedback
-                            button_key = f"hour_{hour}_cycle"
-                            
-                            # Calculate next period for immediate visual feedback
-                            next_period_index = (current_period_index + 1) % (len(timeline['periods']) + 1)
-                            next_period_name = None
-                            if next_period_index < len(timeline['periods']):
-                                next_period_name = timeline['periods'][next_period_index]['name']
-                            
-                            # Show next period color immediately on hover
-                            hover_color = 'transparent'
-                            if next_period_name:
-                                if next_period_name == "Super Off-Peak":
-                                    hover_color = '#87CEEB'
-                                elif next_period_name == "Off-Peak":
-                                    hover_color = '#90EE90'
-                                elif next_period_name == "Mid-Peak":
-                                    hover_color = '#FFD700'
-                                elif next_period_name == "Peak":
-                                    hover_color = '#FF6B6B'
-                            
-                            # Create button with hover effect showing next period color
-                            st.markdown(f"""
-                            <style>
-                            div[data-testid="stButton"] button[key="{button_key}"]:hover {{
-                                background-color: {hover_color} !important;
-                                color: {'black' if _is_light_color(hover_color) and hover_color != 'transparent' else 'white'} !important;
-                            }}
-                            </style>
-                            """, unsafe_allow_html=True)
-                            
-                            if st.button(button_text, key=button_key, 
-                                       help=f"Click to cycle through periods for {hour:02.0f}h (next: {next_period_name if next_period_name else 'Unassigned'})",
-                                       use_container_width=True):
-                                # Process the logic immediately after visual feedback
-                                # Remove from current period
-                                if period_idx is not None:
-                                    timeline['periods'][period_idx]['hours'].remove(hour)
-                                
-                                # Add to next period (if not unassigned)
-                                if next_period_index < len(timeline['periods']):
-                                    timeline['periods'][next_period_index]['hours'].append(hour)
-                                
-                                # Force immediate update
-                                st.rerun()
+                            # Force immediate rerun to update the color block
+                            st.rerun()
+            
+            # Add reset button under the timeline
+            
+            if st.button("🔄 Reset Time-of-Use Timeline", type="secondary"):
+                # Clear session state assignments to restore original timeline defaults
+                st.session_state.pop('hour_assignments', None)
+                st.session_state.pop('initial_timeline', None)
+                
+                # Restore original timeline
+                if 'original_timeline' in st.session_state:
+                    st.session_state.time_of_use_timeline = st.session_state.original_timeline.copy()
+                
+                st.success("✅ Timeline reset to default values!")
+                st.rerun()
+            
+            # Update timeline based on session state assignments
+            if 'hour_assignments' in st.session_state and st.session_state.hour_assignments:
+                # Clear all hour assignments in timeline
+                for period in timeline['periods']:
+                    period['hours'] = []
+                
+                # Reassign hours based on session state
+                for hour, period_name in st.session_state.hour_assignments.items():
+                    for period in timeline['periods']:
+                        if period['name'] == period_name:
+                            period['hours'].append(hour)
+                            break
+            else:
+                # Initialize session state with default timeline assignments if empty
+                if 'hour_assignments' not in st.session_state or not st.session_state.hour_assignments:
+                    # Store initial timeline if not already stored
+                    if 'initial_timeline' not in st.session_state:
+                        st.session_state.initial_timeline = {}
+                        for period in timeline['periods']:
+                            for hour in period['hours']:
+                                st.session_state.initial_timeline[hour] = period['name']
+
+                    
+                    # Initialize with stored initial values or current timeline
+                    st.session_state.hour_assignments = {}
+                    if 'initial_timeline' in st.session_state and st.session_state.initial_timeline:
+                        # Use stored initial values
+                        for hour, period_name in st.session_state.initial_timeline.items():
+                            st.session_state.hour_assignments[hour] = period_name
+                    else:
+                        # Use current timeline as initial values
+                        for period in timeline['periods']:
+                            for hour in period['hours']:
+                                st.session_state.hour_assignments[hour] = period['name']
             
             # Update session state - convert timeline format to simulation format
             periods = []
@@ -1016,8 +1155,8 @@ with st.sidebar:
                     # Create a period for each range
                     for start_hour, end_hour in ranges:
                         periods.append({
-                            'start': start_hour,
-                            'end': end_hour,
+                            'start': start_hour - 1,  # Convert from 1-24 to 0-23 format for simulation
+                            'end': end_hour - 1,      # Convert from 1-24 to 0-23 format for simulation
                             'name': period['name'],
                             'color': period['color'],
                             'adoption': period['adoption']
@@ -1492,18 +1631,231 @@ with st.sidebar:
 
     # Dataset Selection
     with st.expander("📊 Dataset Selection", expanded=False):
-        dataset_files = ["df1.csv", "df2.csv", "df3.csv"]
-        # Initialize dataset selection in session state if not exists
-        if 'selected_dataset' not in st.session_state:
-            st.session_state.selected_dataset = "df3.csv"
-        
-        selected_dataset = st.selectbox(
-            "Select Dataset", 
-            dataset_files,
-            index=dataset_files.index(st.session_state.selected_dataset)
+        # Data source selection
+        data_source = st.radio(
+            "Data Source",
+            ["Real Dataset", "Synthetic Generation"],
+            help="Choose between real historical data or synthetic load curve generation"
         )
-        st.session_state.selected_dataset = selected_dataset
         
+        if data_source == "Real Dataset":
+            # Original dataset selection logic
+            dataset_files = ["df1.csv", "df2.csv", "df3.csv"]
+            # Initialize dataset selection in session state if not exists
+            if 'selected_dataset' not in st.session_state:
+                st.session_state.selected_dataset = "df3.csv"
+            
+            selected_dataset = st.selectbox(
+                "Select Dataset", 
+                dataset_files,
+                index=dataset_files.index(st.session_state.selected_dataset)
+            )
+            st.session_state.selected_dataset = selected_dataset
+            
+            if selected_dataset:
+                try:
+                    df = pd.read_csv(f"datasets/{selected_dataset}")
+                    df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                    
+                    # Get date range for the calendar
+                    date_min = df['date'].min()
+                    date_max = df['date'].max()
+                    
+                    if pd.notna(date_min) and pd.notna(date_max):
+                        # Use date_input for nice calendar selection
+                        # Initialize selected date in session state if not exists
+                        if 'selected_date' not in st.session_state:
+                            # Set default date to 2023/01/18
+                            default_date = pd.to_datetime('2023-01-18').date()
+                            # Check if default date is within the dataset range
+                            if date_min.date() <= default_date <= date_max.date():
+                                st.session_state.selected_date = default_date
+                            else:
+                                st.session_state.selected_date = date_min.date()
+                        
+                        selected_date = st.date_input(
+                            "Select Date",
+                            value=st.session_state.selected_date,
+                            min_value=date_min.date(),
+                            max_value=date_max.date()
+                        )
+                        st.session_state.selected_date = selected_date
+                        
+                        if selected_date:
+                            # Filter data for selected date
+                            day_data = df[df['date'].dt.date == selected_date]
+                            
+                            if not day_data.empty:
+                                # Extract power values (3rd column, index 2) - no scaling here
+                                power_values = day_data.iloc[:, 2].values
+                                st.write(f"Grid power profile loaded: {len(power_values)} data points")
+                            else:
+                                st.error("No data found for selected date")
+                                power_values = None
+                        else:
+                            power_values = None
+                    else:
+                        st.error("No valid dates found in dataset")
+                        power_values = None
+                except Exception as e:
+                    st.error(f"Error loading dataset: {e}")
+                    power_values = None
+            else:
+                power_values = None
+                
+        else:  # Synthetic Generation
+            st.write("**🎲 Synthetic Load Curve Generation**")
+            st.write("Generate synthetic load curves using trained AI models.")
+            
+            # Initialize synthetic parameters in session state if not exists
+            if 'synthetic_params' not in st.session_state:
+                st.session_state.synthetic_params = {
+                    'day_type': 'weekday',
+                    'season': 'winter',
+                    'max_power': 400,
+                    'diversity_mode': 'high'
+                }
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Day type selection
+                day_type = st.selectbox(
+                    "Day Type",
+                    ["weekday", "weekend"],
+                    index=0 if st.session_state.synthetic_params['day_type'] == 'weekday' else 1,
+                    help="Choose between weekday or weekend load patterns"
+                )
+                st.session_state.synthetic_params['day_type'] = day_type
+                
+                # Season selection
+                season = st.selectbox(
+                    "Season",
+                    ["winter", "spring", "summer", "autumn"],
+                    index=["winter", "spring", "summer", "autumn"].index(st.session_state.synthetic_params['season']),
+                    help="Select the season for load pattern generation"
+                )
+                st.session_state.synthetic_params['season'] = season
+            
+            with col2:
+                # Maximum power selection
+                max_power = st.slider(
+                    "Maximum Substation Load (kW)",
+                    min_value=200,
+                    max_value=800,
+                    value=st.session_state.synthetic_params['max_power'],
+                    step=50,
+                    help="Maximum load capacity of the substation (200-800 kW)"
+                )
+                st.session_state.synthetic_params['max_power'] = max_power
+                
+                # Diversity mode selection
+                diversity_mode = st.selectbox(
+                    "Diversity Mode",
+                    ["normal", "high", "extreme"],
+                    index=["normal", "high", "extreme"].index(st.session_state.synthetic_params['diversity_mode']),
+                    help="Controls the variability of generated load curves"
+                )
+                st.session_state.synthetic_params['diversity_mode'] = diversity_mode
+            
+            # Store current parameters in session state
+            current_params = {
+                'day_type': day_type,
+                'season': season,
+                'max_power': max_power,
+                'diversity_mode': diversity_mode
+            }
+            st.session_state.synthetic_params = current_params
+            
+            # Add button to generate synthetic load curve
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("🎲 Generate Synthetic Curve", type="primary"):
+                    try:
+                        # Import the portable load generator
+                        import sys
+                        import os
+                        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        
+                        from portable_load_generator import generate_load_curve
+                        
+                        # Generate the load curve
+                        result = generate_load_curve(
+                            season=season,
+                            day_type=day_type,
+                            max_power=max_power,
+                            diversity_mode=diversity_mode,
+                            models_dir="portable_models",
+                            return_timestamps=True
+                        )
+                        
+                        # Store the generated data in session state
+                        st.session_state.synthetic_load_curve = result['load_curve']
+                        st.session_state.synthetic_timestamps = result['timestamps']
+                        st.session_state.synthetic_metadata = result['metadata']
+                        st.session_state.synthetic_params_hash = str(current_params)
+                        
+                        st.success(f"✅ Synthetic load curve generated successfully!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error generating synthetic data: {e}")
+                        st.write("Please ensure the portable_models directory contains the trained models.")
+                        st.session_state.synthetic_load_curve = None
+                        st.session_state.synthetic_metadata = None
+            
+            with col2:
+                if st.button("🗑️ Clear Synthetic Curve"):
+                    if 'synthetic_load_curve' in st.session_state:
+                        del st.session_state.synthetic_load_curve
+                    if 'synthetic_timestamps' in st.session_state:
+                        del st.session_state.synthetic_timestamps
+                    if 'synthetic_metadata' in st.session_state:
+                        del st.session_state.synthetic_metadata
+                    if 'synthetic_params_hash' in st.session_state:
+                        del st.session_state.synthetic_params_hash
+                    st.success("🗑️ Synthetic curve cleared!")
+                    st.rerun()
+            
+            # Display synthetic curve summary
+            st.write("**📊 Synthetic Curve Summary:**")
+            if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+                curve = st.session_state.synthetic_load_curve
+                metadata = st.session_state.synthetic_metadata if 'synthetic_metadata' in st.session_state else {}
+                
+                st.success(f"✅ Synthetic load curve ready!")
+                st.write(f"**Generated Profile:** {len(curve)} data points")
+                st.write(f"**Mean Load:** {np.mean(curve):.2f} kW")
+                st.write(f"**Max Load:** {np.max(curve):.2f} kW")
+                st.write(f"**Min Load:** {np.min(curve):.2f} kW")
+                if metadata:
+                    st.write(f"**Season:** {metadata.get('season', 'Unknown')}")
+                    st.write(f"**Day Type:** {metadata.get('day_type', 'Unknown')}")
+                
+                # Show curve preview
+                fig, ax = plt.subplots(figsize=(10, 4))
+                # Convert x-axis to hours (48 hours = 192 data points at 15-min intervals)
+                time_hours = np.arange(len(curve)) * 15 / 60  # Convert 15-min intervals to hours
+                ax.plot(time_hours, curve, linewidth=1, alpha=0.8)
+                ax.set_title("Synthetic Load Curve Preview")
+                ax.set_xlabel("Time (hours)")
+                ax.set_ylabel("Load (kW)")
+                ax.grid(True, alpha=0.3)
+                # Set x-axis to show 0-48 hours
+                ax.set_xlim(0, 48)
+                st.pyplot(fig)
+                plt.close()
+            else:
+                st.info("ℹ️ No synthetic curve generated yet. Click 'Generate Synthetic Curve' to create one.")
+            
+            # Set power_values from session state
+            if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+                power_values = st.session_state.synthetic_load_curve
+            else:
+                power_values = None
+        
+        # Universal Available Load Fraction slider (moved here for both data sources)
+        st.write("**🔧 Grid Capacity Settings:**")
         # Add slider for available load fraction and store in session state
         if 'available_load_fraction' not in st.session_state:
             st.session_state['available_load_fraction'] = 0.8
@@ -1513,59 +1865,14 @@ with st.sidebar:
             max_value=1.0,
             value=st.session_state['available_load_fraction'],
             step=0.05,
-            help="Fraction of the grid limit that can be used (e.g. 0.8 = 80%)"
+            help="Fraction of the grid limit that can be used (e.g. 0.8 = 80% safety margin)"
         )
         available_load_fraction = st.session_state['available_load_fraction']
-        if selected_dataset:
-            try:
-                df = pd.read_csv(f"datasets/{selected_dataset}")
-                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                
-                # Get date range for the calendar
-                date_min = df['date'].min()
-                date_max = df['date'].max()
-                
-                if pd.notna(date_min) and pd.notna(date_max):
-                    # Use date_input for nice calendar selection
-                    # Initialize selected date in session state if not exists
-                    if 'selected_date' not in st.session_state:
-                        # Set default date to 2023/01/18
-                        default_date = pd.to_datetime('2023-01-18').date()
-                        # Check if default date is within the dataset range
-                        if date_min.date() <= default_date <= date_max.date():
-                            st.session_state.selected_date = default_date
-                        else:
-                            st.session_state.selected_date = date_min.date()
-                    
-                    selected_date = st.date_input(
-                        "Select Date",
-                        value=st.session_state.selected_date,
-                        min_value=date_min.date(),
-                        max_value=date_max.date()
-                    )
-                    st.session_state.selected_date = selected_date
-                    
-                    if selected_date:
-                        # Filter data for selected date
-                        day_data = df[df['date'].dt.date == selected_date]
-                        
-                        if not day_data.empty:
-                            # Extract and scale power values (3rd column, index 2)
-                            power_values = day_data.iloc[:, 2].values * st.session_state['available_load_fraction']
-                            st.write(f"Grid power profile loaded: {len(power_values)} data points (scaled by {st.session_state['available_load_fraction']})")
-                        else:
-                            st.error("No data found for selected date")
-                            power_values = None
-                    else:
-                        power_values = None
-                else:
-                    st.error("No valid dates found in dataset")
-                    power_values = None
-            except Exception as e:
-                st.error(f"Error loading dataset: {e}")
-                power_values = None
-        else:
-            power_values = None
+        
+        # Apply the available load fraction to power values if they exist
+        if power_values is not None and data_source == "Real Dataset":
+            power_values = power_values * available_load_fraction
+            st.write(f"Grid power profile scaled by {available_load_fraction:.0%} safety margin")
         
         # Grid Constraint Mode
         st.write("**Grid Constraint Mode:**")
@@ -1593,6 +1900,48 @@ with col1:
         # Set simulation run flag and just_run flag
         st.session_state.simulation_run = True
         st.session_state.simulation_just_run = True
+        
+        # Handle synthetic data generation if needed
+        if data_source == "Synthetic Generation" and (power_values is None or len(power_values) == 0):
+            st.info("🎲 Generating synthetic load curve based on current parameters...")
+            try:
+                # Import the portable load generator
+                import sys
+                import os
+                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                
+                from portable_load_generator import generate_load_curve
+                
+                # Get current synthetic parameters
+                synthetic_params = st.session_state.get('synthetic_params', {})
+                season = synthetic_params.get('season', 'winter')
+                day_type = synthetic_params.get('day_type', 'weekday')
+                max_power = synthetic_params.get('max_power', 400)
+                diversity_mode = synthetic_params.get('diversity_mode', 'high')
+                
+                # Generate the load curve
+                result = generate_load_curve(
+                    season=season,
+                    day_type=day_type,
+                    max_power=max_power,
+                    diversity_mode=diversity_mode,
+                    models_dir="portable_models",
+                    return_timestamps=True
+                )
+                
+                # Store the generated data in session state
+                st.session_state.synthetic_load_curve = result['load_curve']
+                st.session_state.synthetic_timestamps = result['timestamps']
+                st.session_state.synthetic_metadata = result['metadata']
+                
+                # Update power_values for simulation
+                power_values = result['load_curve']
+                st.success(f"✅ Synthetic load curve generated automatically for simulation!")
+                
+            except Exception as e:
+                st.error(f"❌ Error generating synthetic data: {e}")
+                st.write("Please ensure the portable_models directory contains the trained models.")
+                st.stop()
         
         # Run simulation and store results
         if power_values is not None:
@@ -1638,26 +1987,63 @@ with col1:
                 sim_duration_min = sim_duration * 60
                 daily_minutes = 24 * 60
                 
+                # Check if we're using synthetic data
+                using_synthetic_data = ('synthetic_load_curve' in st.session_state and 
+                                      st.session_state.synthetic_load_curve is not None)
+                
                 if len(grid_profile_full) < sim_duration_min:
-                    num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                    extended_profile = []
-                    current_date = selected_date
-                    
-                    for day in range(num_days_needed):
-                        day_data = df[df['date'].dt.date == current_date]
+                    if using_synthetic_data:
+                        # For synthetic data, repeat the generated profile to cover the simulation duration
+                        num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                        extended_profile = []
                         
-                        if not day_data.empty:
-                            # Use FULL capacity (no 80% margin yet)
-                            day_power_values = day_data.iloc[:, 2].values
-                            day_profile = np.repeat(day_power_values, 15).astype(float)
-                            extended_profile.extend(day_profile)
-                        else:
-                            # If no data for this day, repeat the previous day's full profile
+                        for day in range(num_days_needed):
+                            # Use the same synthetic profile for each day
                             extended_profile.extend(grid_profile_full)
                         
-                        current_date = current_date + pd.Timedelta(days=1)
-                    
-                    grid_profile_full = np.array(extended_profile[:sim_duration_min])
+                        grid_profile_full = np.array(extended_profile[:sim_duration_min])
+                    else:
+                        # For real dataset, use actual next days from the dataset
+                        # Make sure df is available for real dataset
+                        if 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
+                            try:
+                                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
+                                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                                
+                                num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                                extended_profile = []
+                                current_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
+                                
+                                for day in range(num_days_needed):
+                                    day_data = df[df['date'].dt.date == current_date]
+                                    
+                                    if not day_data.empty:
+                                        # Use FULL capacity (no 80% margin yet)
+                                        day_power_values = day_data.iloc[:, 2].values
+                                        day_profile = np.repeat(day_power_values, 15).astype(float)
+                                        extended_profile.extend(day_profile)
+                                    else:
+                                        # If no data for this day, repeat the previous day's full profile
+                                        extended_profile.extend(grid_profile_full)
+                                    
+                                    current_date = current_date + pd.Timedelta(days=1)
+                                
+                                grid_profile_full = np.array(extended_profile[:sim_duration_min])
+                            except Exception as e:
+                                st.error(f"Error extending real dataset: {e}")
+                                # Fallback to repeating the current profile
+                                num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                                extended_profile = []
+                                for day in range(num_days_needed):
+                                    extended_profile.extend(grid_profile_full)
+                                grid_profile_full = np.array(extended_profile[:sim_duration_min])
+                        else:
+                            # Fallback to repeating the current profile
+                            num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                            extended_profile = []
+                            for day in range(num_days_needed):
+                                extended_profile.extend(grid_profile_full)
+                            grid_profile_full = np.array(extended_profile[:sim_duration_min])
                 else:
                     grid_profile_full = grid_profile_full[:sim_duration_min]
                 
@@ -1683,49 +2069,57 @@ with col1:
                                 period_groups[period_name] = []
                             period_groups[period_name].append(period)
                         
-                        # Pre-calculate all arrival times for Time of Use
-                        for period_name, periods in period_groups.items():
-                            if periods:
-                                # Get total adoption for this period type
-                                total_adoption_for_type = sum(p['adoption'] for p in periods)
-                                
-                                if total_adoption_for_type > 0:
-                                    # Calculate total EVs for this period type
-                                    total_evs_for_type = int(total_evs * total_adoption_for_type / 100)
+                        # Calculate how many days the simulation runs
+                        daily_minutes = 24 * 60
+                        num_days = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                        
+                        # Pre-calculate all arrival times for Time of Use (repeating daily)
+                        for day in range(num_days):
+                            day_offset_minutes = day * daily_minutes
+                            
+                            for period_name, periods in period_groups.items():
+                                if periods:
+                                    # Get adoption for this period type (should be the same for all periods of same type)
+                                    period_adoption = periods[0]['adoption']
                                     
-                                    if total_evs_for_type > 0:
-                                        # Calculate total hours for this period type
-                                        total_hours_for_type = sum(p['end'] - p['start'] for p in periods)
+                                    if period_adoption > 0:
+                                        # Calculate total EVs for this period type
+                                        total_evs_for_type = int(total_evs * period_adoption / 100)
                                         
-                                        # Split EVs proportionally among periods of this type
-                                        for period in periods:
-                                            # Calculate proportion: this period's hours / total hours of this type
-                                            this_period_hours = period['end'] - period['start']
-                                            proportion = this_period_hours / total_hours_for_type
+                                        if total_evs_for_type > 0:
+                                            # Calculate total hours for this period type
+                                            total_hours_for_type = sum(p['end'] - p['start'] for p in periods)
                                             
-                                            # Calculate EVs for this specific period
-                                            period_evs = int(total_evs_for_type * proportion)
-                                            
-                                            if period_evs > 0:
-                                                # Calculate center time (middle of the period)
-                                                center_hour = (period['start'] + period['end']) / 2
-                                                center_minutes = center_hour * 60
+                                            # Split EVs proportionally among periods of this type
+                                            for period in periods:
+                                                # Calculate proportion: this period's hours / total hours of this type
+                                                this_period_hours = period['end'] - period['start']
+                                                proportion = this_period_hours / total_hours_for_type
                                                 
-                                                # Calculate span (duration of the period)
-                                                span_hours = period['end'] - period['start']
-                                                span_minutes = span_hours * 60
-                                                std_minutes = span_minutes / 4  # Standard deviation = span/4
+                                                # Calculate EVs for this specific period
+                                                period_evs = int(total_evs_for_type * proportion)
                                                 
-                                                # Generate arrival times for this period
-                                                period_arrival_times = np.random.normal(center_minutes, std_minutes, period_evs)
-                                                
-                                                # Clip to period boundaries
-                                                period_arrival_times = np.clip(period_arrival_times, 
-                                                                             period['start'] * 60, 
-                                                                             period['end'] * 60)
-                                                
-                                                # Add to arrival times list
-                                                arrival_times.extend(period_arrival_times)
+                                                if period_evs > 0:
+                                                    # Calculate center time (middle of the period)
+                                                    center_hour = (period['start'] + period['end']) / 2
+                                                    center_minutes = center_hour * 60
+                                                    
+                                                    # Calculate span (duration of the period)
+                                                    span_hours = period['end'] - period['start']
+                                                    span_minutes = span_hours * 60
+                                                    std_minutes = span_minutes / 4  # Standard deviation = span/4
+                                                    
+                                                    # Generate arrival times for this period on this day
+                                                    period_arrival_times = np.random.normal(center_minutes, std_minutes, period_evs)
+                                                    
+                                                    # Clip to period boundaries and add day offset
+                                                    period_arrival_times = np.clip(period_arrival_times, 
+                                                                                 period['start'] * 60, 
+                                                                                 period['end'] * 60)
+                                                    period_arrival_times += day_offset_minutes
+                                                    
+                                                    # Add to arrival times list
+                                                    arrival_times.extend(period_arrival_times)
                 else:
                     # Use default single peak if Time of Use is not enabled
                     peak = st.session_state.time_peaks[0]
@@ -2186,7 +2580,10 @@ with col1:
                     'v2g_max_discharge_rate': st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0),
                     'v2g_discharge_start_hour': st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20),
                     'v2g_discharge_duration': st.session_state.optimization_strategy.get('v2g_discharge_duration', 3),
-                    'v2g_recharge_arrival_hour': st.session_state.optimization_strategy.get('v2g_recharge_arrival_hour', 26)
+                    'v2g_recharge_arrival_hour': st.session_state.optimization_strategy.get('v2g_recharge_arrival_hour', 26),
+                    # Synthetic data information
+                    'using_synthetic_data': using_synthetic_data,
+                    'synthetic_metadata': st.session_state.get('synthetic_metadata', None)
                 }
                 
             except Exception as e:
