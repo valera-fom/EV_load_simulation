@@ -2422,8 +2422,10 @@ with col1:
                         grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
                         
                         # Use the same simple logic as PV battery
-                        total_charge_power = grid_battery_evs * grid_battery_max_rate
-                        total_discharge_power = grid_battery_evs * grid_battery_max_rate
+                        charge_rate = grid_battery_capacity / grid_battery_charge_duration
+                        discharge_rate = grid_battery_capacity / grid_battery_discharge_duration
+                        total_charge_power = grid_battery_evs * charge_rate
+                        total_discharge_power = grid_battery_evs * discharge_rate
                         
                         # Create charging curve (reduces available capacity) - only during charging hours
                         charge_start_minute = grid_battery_charge_start_hour * 60
@@ -2548,8 +2550,10 @@ with col1:
                         grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
                         
                         # Use the same simple logic as PV battery
-                        total_charge_power = grid_battery_evs * grid_battery_max_rate
-                        total_discharge_power = grid_battery_evs * grid_battery_max_rate
+                        charge_rate = grid_battery_capacity / grid_battery_charge_duration
+                        discharge_rate = grid_battery_capacity / grid_battery_discharge_duration
+                        total_charge_power = grid_battery_evs * charge_rate
+                        total_discharge_power = grid_battery_evs * discharge_rate
                         
                         # Create charging curve (reduces available capacity) - only during charging hours
                         charge_start_minute = grid_battery_charge_start_hour * 60
