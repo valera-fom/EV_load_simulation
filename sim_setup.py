@@ -151,6 +151,7 @@ class SimulationSetup:
                     charger_instance,
                     done_event
                 )
+                # The charging process automatically adds itself to the pool in its run() method
                 yield done_event  # Wait until charging is done before picking the next EV
 
     def _is_compatible(self, ev, charger_type):
@@ -235,7 +236,8 @@ class SimulationSetup:
                 sim_time = int(self.env.now)
                 grid_profile = self.grid_power_profile
                 grid_limit = self.grid_power_limit
-                if grid_profile is not None:
+                # Fix for NumPy array boolean ambiguity
+                if grid_profile is not None and (not hasattr(grid_profile, '__len__') or len(grid_profile) > 0):
                     current_limit = grid_profile[sim_time] if sim_time < len(grid_profile) else grid_profile[-1]
                 else:
                     current_limit = grid_limit if grid_limit is not None else float('inf')

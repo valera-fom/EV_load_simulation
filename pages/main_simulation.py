@@ -12,8 +12,9 @@ import streamlit.components.v1 as components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sim_setup import SimulationSetup
-from EV import EV_MODELS, EV
+from EV import EV, EV_MODELS
 from charger import CHARGER_MODELS
+from pages.components.capacity_analyzer import find_max_cars_capacity
 
 def _is_light_color(hex_color):
     """Helper function to determine if a hex color is light or dark for text contrast."""
@@ -287,9 +288,13 @@ with st.sidebar:
         ac_count = st.number_input("AC Charger Count", min_value=0, 
                                   value=int(st.session_state.charger_config['ac_count']))
         
+        # Update session state with new charger values
+        st.session_state.charger_config['ac_rate'] = ac_rate
+        st.session_state.charger_config['ac_count'] = ac_count
+        
         # Clear simulation results if charger parameters changed
-        if (ac_rate != st.session_state.charger_config['ac_rate'] or 
-            ac_count != st.session_state.charger_config['ac_count']):
+        if (ac_rate != st.session_state.charger_config.get('ac_rate', ac_rate) or 
+            ac_count != st.session_state.charger_config.get('ac_count', ac_count)):
             st.session_state.simulation_just_run = False
             # Don't clear simulation_results - let them persist
 
@@ -1536,7 +1541,7 @@ with st.sidebar:
             
             total_v2g_discharge = total_v2g_evs * actual_discharge_rate
             
-            st.info(f"💡 {total_v2g_evs} V2G EVs will discharge {total_v2g_discharge:.1f} kW for {v2g_discharge_duration}h starting at {v2g_discharge_start_hour}:00 at {actual_discharge_rate:.2f} kW (max possible: {v2g_max_discharge_rate:.1f} kW), then {recharge_evs} EVs will arrive to recharge at {v2g_recharge_arrival_hour}:00 ({discharge_percentage:.0%} discharged)")
+            st.info(f"💡 {total_v2g_evs} V2G EVs will discharge {total_v2g_discharge:.1f} kW for {v2g_discharge_duration:.2f}h starting at {v2g_discharge_start_hour}:00 at {actual_discharge_rate:.2f} kW (max possible: {v2g_max_discharge_rate:.1f} kW), then {recharge_evs} EVs will arrive to recharge at {v2g_recharge_arrival_hour}:00 ({discharge_percentage:.0%} discharged)")
             
             # Update session state for V2G
             st.session_state.optimization_strategy['v2g_adoption_percent'] = v2g_adoption_percent
@@ -1549,6 +1554,122 @@ with st.sidebar:
             st.session_state.simulation_just_run = False
             # Don't clear simulation_results - let them persist
 
+ # Reverse Simulation (Capacity Analysis)
+    with st.expander("🔍 Reverse Simulation", expanded=False):
+        st.write("**Find the maximum number of EVs that can fit under the margin curve with current parameters.**")
+        
+        # Multi-step capacity analysis
+        num_steps = st.slider("Number of Analysis Steps", min_value=1, max_value=4, value=1, 
+                              help="Run capacity analysis in multiple steps for more accurate results")
+        
+        # Capacity Analysis Button (always enabled, auto-generates data if missing)
+        if st.button("🎯 Find Maximum Cars", type="primary"):
+            # Get current configuration parameters
+            ev_config = st.session_state.dynamic_ev
+            charger_config = st.session_state.charger_config
+            time_peaks = st.session_state.get('time_peaks', [])
+            active_strategies = st.session_state.get('active_strategies', [])
+            grid_mode = st.session_state.get('grid_mode', 'Reference Only')
+            available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+            data_source = st.session_state.get('data_source', 'Real Dataset')
+            power_values = st.session_state.get('power_values', None)
+            # Handle data loading/generation (EXACTLY like simulation button)
+            if data_source == "Synthetic Generation":
+                if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None and len(st.session_state.synthetic_load_curve) > 0:
+                    power_values = st.session_state.synthetic_load_curve
+                    st.session_state.power_values = power_values
+                elif power_values is None or len(power_values) == 0:
+                    st.info("🎲 Generating synthetic load curve based on current parameters...")
+                    try:
+                        import sys
+                        import os
+                        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        from portable_load_generator import generate_load_curve
+                        synthetic_params = st.session_state.get('synthetic_params', {})
+                        season = synthetic_params.get('season', 'winter')
+                        day_type = synthetic_params.get('day_type', 'weekday')
+                        max_power = synthetic_params.get('max_power', 400)
+                        diversity_mode = synthetic_params.get('diversity_mode', 'high')
+                        result = generate_load_curve(
+                            season=season,
+                            day_type=day_type,
+                            max_power=max_power,
+                            diversity_mode=diversity_mode,
+                            models_dir="portable_models",
+                            return_timestamps=True
+                        )
+                        st.session_state.synthetic_load_curve = result['load_curve']
+                        st.session_state.synthetic_timestamps = result['timestamps']
+                        st.session_state.synthetic_metadata = result['metadata']
+                        power_values = result['load_curve']
+                        st.session_state.power_values = power_values
+                        st.success(f"✅ Synthetic load curve generated automatically for capacity analysis!")
+                    except Exception as e:
+                        st.error(f"❌ Error generating synthetic data: {e}")
+                        st.write("Please ensure the portable_models directory contains the trained models.")
+                        st.stop()
+            elif data_source == "Real Dataset":
+                # For Real Dataset, try to use existing data or fall back to synthetic
+                if power_values is None or len(power_values) == 0:
+                    st.info("📊 No real dataset loaded. Falling back to synthetic generation...")
+                    try:
+                        import sys
+                        import os
+                        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        from portable_load_generator import generate_load_curve
+                        synthetic_params = st.session_state.get('synthetic_params', {})
+                        season = synthetic_params.get('season', 'winter')
+                        day_type = synthetic_params.get('day_type', 'weekday')
+                        max_power = synthetic_params.get('max_power', 400)
+                        diversity_mode = synthetic_params.get('diversity_mode', 'high')
+                        result = generate_load_curve(
+                            season=season,
+                            day_type=day_type,
+                            max_power=max_power,
+                            diversity_mode=diversity_mode,
+                            models_dir="portable_models",
+                            return_timestamps=True
+                        )
+                        st.session_state.synthetic_load_curve = result['load_curve']
+                        st.session_state.synthetic_timestamps = result['timestamps']
+                        st.session_state.synthetic_metadata = result['metadata']
+                        power_values = result['load_curve']
+                        st.session_state.power_values = power_values
+                        st.success(f"✅ Synthetic load curve generated automatically for capacity analysis!")
+                    except Exception as e:
+                        st.error(f"❌ Error generating synthetic data: {e}")
+                        st.write("Please ensure the portable_models directory contains the trained models.")
+                        st.stop()
+            # Check if we have valid data
+            if power_values is None or len(power_values) == 0:
+                st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
+                st.stop()
+            with st.spinner("🔍 Analyzing system capacity..."):
+                max_cars = find_max_cars_capacity(
+                    ev_config=ev_config,
+                    charger_config=charger_config,
+                    time_peaks=time_peaks,
+                    active_strategies=active_strategies,
+                    grid_mode=grid_mode,
+                    available_load_fraction=available_load_fraction,
+                    power_values=power_values,
+                    sim_duration=sim_duration,
+                    num_steps=num_steps
+                )
+                if max_cars is not None:
+                    st.session_state.capacity_analysis_results = {
+                        'max_cars': max_cars,
+                        'ev_config': ev_config,
+                        'charger_config': charger_config,
+                        'time_peaks': time_peaks,
+                        'active_strategies': active_strategies,
+                        'grid_mode': grid_mode,
+                        'available_load_fraction': available_load_fraction,
+                        'power_values': power_values
+                    }
+                    st.success(f"🎯 **Maximum Capacity Found: {max_cars} EVs**")
+                else:
+                    st.error("❌ Could not determine maximum capacity")
 
     # EV Number Calculator
     with st.expander("🧮 EV Number Calculator", expanded=False):
@@ -1632,11 +1753,12 @@ with st.sidebar:
     # Dataset Selection
     with st.expander("📊 Dataset Selection", expanded=False):
         # Data source selection
-        data_source = st.radio(
-            "Data Source",
-            ["Real Dataset", "Synthetic Generation"],
-            help="Choose between real historical data or synthetic load curve generation"
-        )
+        st.write("**Data Source:**")
+        data_source = st.radio("Data Source", ["Real Dataset", "Synthetic Generation"],
+                              help="Choose between real historical data or synthetic load curve generation")
+        
+        # Store data source in session state for access by other components
+        st.session_state.data_source = data_source
         
         if data_source == "Real Dataset":
             # Original dataset selection logic
@@ -1696,11 +1818,7 @@ with st.sidebar:
                             if not day_data.empty:
                                 # Extract power values (3rd column, index 2) - no scaling here
                                 power_values = day_data.iloc[:, 2].values
-                                st.write(f"Grid power profile loaded: {len(power_values)} data points")
-                                
-                                # Debug: Show first few values to understand data structure
-                                st.write(f"**Data Preview:** First 10 values: {power_values[:10]}")
-                                st.write(f"**Data Range:** Min: {np.min(power_values):.2f}, Max: {np.max(power_values):.2f}")
+                                st.session_state.power_values = power_values  # Store in session state
                                 
                                 # Display dataset curve summary and preview
                                 st.write("**📊 Dataset Curve Summary:**")
@@ -1763,12 +1881,21 @@ with st.sidebar:
                     'day_type': 'weekday',
                     'season': 'winter',
                     'max_power': 400,
-                    'diversity_mode': 'high'
+                    'diversity_mode': 'normal'
                 }
             
             col1, col2 = st.columns(2)
             
             with col1:
+                # Initialize synthetic_params if not exists
+                if 'synthetic_params' not in st.session_state:
+                    st.session_state.synthetic_params = {
+                        'day_type': 'weekday',
+                        'season': 'winter',
+                        'max_power': 400,
+                        'diversity_mode': 'normal'
+                    }
+                
                 # Day type selection
                 day_type = st.selectbox(
                     "Day Type",
@@ -3010,3 +3137,5 @@ with col2:
         st.write("• EV charging patterns")
         st.write("• Optimization strategy effects")
         st.write("• Peak demand analysis")
+
+            # Check if we have valid data
