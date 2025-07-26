@@ -1559,13 +1559,16 @@ with st.sidebar:
 
  # Reverse Simulation (Capacity Analysis)
     with st.expander("🔍 Reverse Simulation", expanded=False):
-        st.write("**Find the maximum number of EVs that can fit under the margin curve with current parameters.**")
+         # First Optimizer: Maximum Cars Analysis
+        st.subheader("🎯 Maximum Cars Optimizer")
+        st.write("Find the maximum number of EVs that can fit under the margin curve with current parameters.")
         
         # Multi-step capacity analysis
         num_steps = st.slider("Number of Analysis Steps", min_value=1, max_value=4, value=1, 
                               help="Run capacity analysis in multiple steps for more accurate results")
         
-
+       
+        
         # Capacity Analysis Button (always enabled, auto-generates data if missing)
         if st.button("🎯 Find Maximum Cars", type="primary"):
             # Get current configuration parameters
@@ -1674,6 +1677,17 @@ with st.sidebar:
                     st.success(f"🎯 **Maximum Capacity Found: {max_cars} EVs**")
                 else:
                     st.error("❌ Could not determine maximum capacity")
+                
+        # RL Capacity Optimizer (separate from first optimizer)
+        st.write("---")
+        st.subheader("🤖 RL Capacity Optimizer")
+        try:
+            # Lazy import to avoid heavy imports on page load
+            from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
+            create_capacity_optimizer_ui()
+        except Exception as e:
+            st.error(f"❌ RL Capacity Optimizer error: {e}")
+            st.info("💡 This feature requires Stable-Baselines3. Install with: `pip install stable-baselines3`")
 
     # EV Number Calculator
     with st.expander("🧮 EV Number Calculator", expanded=False):
@@ -1753,17 +1767,6 @@ with st.sidebar:
         else:
             st.warning("Please enter a valid number of substations (greater than 0)")
             evs_per_substation = 0
-
-        # RL Capacity Optimizer (separate from first optimizer)
-        st.write("---")
-        st.subheader("🤖 RL Capacity Optimizer")
-        try:
-            # Lazy import to avoid heavy imports on page load
-            from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
-            create_capacity_optimizer_ui()
-        except Exception as e:
-            st.error(f"❌ RL Capacity Optimizer error: {e}")
-            st.info("💡 This feature requires Stable-Baselines3. Install with: `pip install stable-baselines3`")
 
 
 
