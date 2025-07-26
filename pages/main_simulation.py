@@ -302,6 +302,7 @@ with st.sidebar:
     with st.expander("⏰ Time Control", expanded=False):
         st.write("**Simulation Duration:**")
         sim_duration = st.slider("Duration (hours)", min_value=1, max_value=48, value=36)
+        st.session_state.sim_duration = sim_duration  # Store for plotting
         
         st.write("**Peak Configuration:**")
         
@@ -2165,7 +2166,7 @@ with col1:
                 grid_profile_15min = power_values
                 grid_profile_full = np.repeat(grid_profile_15min, 15).astype(float)
                 
-                sim_duration_min = sim_duration * 60
+                sim_duration_min = 48 * 60  # Always 48 hours for simulation
                 daily_minutes = 24 * 60
                 
                 # Check if we're using synthetic data
@@ -2250,9 +2251,9 @@ with col1:
                                 period_groups[period_name] = []
                             period_groups[period_name].append(period)
                         
-                        # Calculate how many days the simulation runs
+                        # Calculate how many days the simulation runs (always 48 hours = 2 days)
                         daily_minutes = 24 * 60
-                        num_days = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                        num_days = 2  # Always 2 days for 48-hour simulation
                         
                         # Pre-calculate all arrival times for Time of Use (repeating daily)
                         for day in range(num_days):
@@ -2313,7 +2314,7 @@ with col1:
                 
                 # Finalize arrival times (clip and sort once)
                 arrival_times = np.array(arrival_times)
-                arrival_times = np.clip(arrival_times, 0, sim_duration * 60 - 60)
+                arrival_times = np.clip(arrival_times, 0, 48 * 60 - 60)  # Always 48 hours for simulation
                 arrival_times.sort()
                 
                 # Add V2G recharge EVs to arrival times
@@ -2627,10 +2628,12 @@ with col1:
                 else:
                     grid_power_limit = None  # No constraint for Reference Only mode
                 
+                # Always run simulation for 48 hours to avoid cars stacking at the end
+                # The UI sim_duration slider only affects graph plotting
                 sim = SimulationSetup(
                     ev_counts=ev_counts,
                     charger_counts=charger_counts,
-                    sim_duration=sim_duration * 60,
+                    sim_duration=48 * 60,  # Always 48 hours for simulation
                     arrival_time_mean=12 * 60,
                     arrival_time_span=4 * 60,
                     grid_power_limit=grid_power_limit  # Pass grid constraint to simulation
@@ -2695,7 +2698,7 @@ with col1:
                     sim.evs.append(ev)
                 for i, ev in enumerate(sim.evs):
                     sim.env.process(sim._ev_arrival(ev, arrival_times[i]))
-                sim.env.run(until=sim_duration * 60)
+                sim.env.run(until=48 * 60)  # Always run for 48 hours
                 constrained_load_curve = sim.load_curve.copy()
                 
                 # Store the original EV-only load curve for display purposes
@@ -2803,16 +2806,25 @@ with col1:
         # Plot results with two subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), height_ratios=[2, 1])
         
-        # Define time axis
-        time_hours = np.arange(len(results['load_curve'])) / 60
+        # Define time axis - respect UI sim_duration slider for plotting
+        sim_duration = st.session_state.get('sim_duration', 36)  # Get from UI slider
+        max_plot_points = sim_duration * 60  # Convert to minutes
+        
+        # Limit the data to the UI slider duration for plotting
+        plot_load_curve = results['load_curve'][:max_plot_points]
+        time_hours = np.arange(len(plot_load_curve)) / 60
         
         # Top plot: EV Load and Grid Limits
         if results['grid_limit'] is not None:
-            grid_time = np.arange(len(results['grid_limit'])) / 60
+            # Limit grid data to UI slider duration for plotting
+            plot_grid_limit = results['grid_limit'][:max_plot_points]
+            plot_adjusted_grid_limit = results['adjusted_grid_limit_before_margin'][:max_plot_points] if 'adjusted_grid_limit_before_margin' in results else None
+            plot_original_grid_limit = results['original_grid_limit'][:max_plot_points] if 'original_grid_limit' in results else None
+            grid_time = np.arange(len(plot_grid_limit)) / 60
             
             # 1. Grid Limit (red dashed line)
             if 'adjusted_grid_limit_before_margin' in results:
-                ax1.step(grid_time, results['adjusted_grid_limit_before_margin'], where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
+                ax1.step(grid_time, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
             
             # 2. Battery Effects (charging and discharging)
             if show_battery_effects:
@@ -2827,46 +2839,52 @@ with col1:
                 
                 # PV direct system support (lightgreen shading - PV discharge during the day)
                 if pv_direct_support is not None and np.any(pv_direct_support > 0):
-                    ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + pv_direct_support, 
+                    plot_pv_direct_support = pv_direct_support[:max_plot_points]
+                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
                                    color='lightgreen', alpha=0.4, label='PV Direct System Support')
                 
                 # 3. Battery Charging Effects (separate PV and Grid charging)
                 if pv_charge is not None and np.any(pv_charge > 0):
                     # PV battery charging (orange shading - above red line to show extra energy)
-                    ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + pv_charge, 
+                    plot_pv_charge = pv_charge[:max_plot_points]
+                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + plot_pv_charge, 
                                    color='orange', alpha=0.4, label='PV Battery Charging (Extra Energy)')
                 
                 if grid_charge is not None and np.any(grid_charge > 0):
                     # Grid battery charging (lightcoral shading - reduces grid capacity)
-                    ax1.fill_between(grid_time, results['original_grid_limit'] - grid_charge, results['original_grid_limit'], 
+                    plot_grid_charge = grid_charge[:max_plot_points]
+                    ax1.fill_between(grid_time, plot_original_grid_limit - plot_grid_charge, plot_original_grid_limit, 
                                    color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
                 
                 # Combine all battery discharging effects (PV battery + grid battery + V2G discharge)
                 has_battery_discharge_effects = (pv_battery_discharge is not None and np.any(pv_battery_discharge > 0)) or (grid_discharge is not None and np.any(grid_discharge > 0)) or (v2g_discharge is not None and np.any(v2g_discharge > 0))
                 if has_battery_discharge_effects:
-                    combined_battery_discharge = np.zeros_like(results['original_grid_limit'])
+                    combined_battery_discharge = np.zeros_like(plot_original_grid_limit)
                     if pv_battery_discharge is not None:
-                        combined_battery_discharge += pv_battery_discharge
+                        plot_pv_battery_discharge = pv_battery_discharge[:max_plot_points]
+                        combined_battery_discharge += plot_pv_battery_discharge
                     if grid_discharge is not None:
-                        combined_battery_discharge += grid_discharge
+                        plot_grid_discharge = grid_discharge[:max_plot_points]
+                        combined_battery_discharge += plot_grid_discharge
                     if v2g_discharge is not None:
-                        combined_battery_discharge += v2g_discharge
+                        plot_v2g_discharge = v2g_discharge[:max_plot_points]
+                        combined_battery_discharge += plot_v2g_discharge
                     
                     # Plot combined battery discharging effects (light blue color for battery discharge during peak)
-                    ax1.fill_between(grid_time, results['original_grid_limit'], results['original_grid_limit'] + combined_battery_discharge, 
+                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + combined_battery_discharge, 
                                    color='#87CEEB', alpha=0.4, label='Battery Discharge Effects (Combined)')
             
             # 4. Grid Limit with margin (orange dashed line)
             safety_percentage = st.session_state.get('available_load_fraction', 0.8) * 100
-            ax1.step(grid_time, results['grid_limit'], where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
+            ax1.step(grid_time, plot_grid_limit, where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
         
         # 5. EV Load (blue line)
-        ax1.plot(time_hours, results['load_curve'], 'b-', linewidth=2, label='EV Load')
+        ax1.plot(time_hours, plot_load_curve, 'b-', linewidth=2, label='EV Load')
         
         # Ensure y-axis shows both lines
         if results['grid_limit'] is not None:
             min_y = 0
-            max_y = max(np.max(results['grid_limit']), np.max(results['original_grid_limit']), np.max(results['load_curve'])) * 1.1
+            max_y = max(np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve)) * 1.1
             ax1.set_ylim(min_y, max_y)
         
         if show_legend:
@@ -2880,14 +2898,13 @@ with col1:
         
         # Bottom plot: Available Grid Capacity
         if results['grid_limit'] is not None:
-            grid_time = np.arange(len(results['grid_limit'])) / 60
-            
+            # Use the same limited data for bottom plot
             # Calculate available capacity up to the adjusted grid limit (with battery effects and 80% margin)
-            available_capacity_total = results['grid_limit'] - results['load_curve']
+            available_capacity_total = plot_grid_limit - plot_load_curve
             available_capacity_total = np.maximum(available_capacity_total, 0)  # Ensure non-negative
             
             # Calculate available capacity up to the adjusted grid limit before 80% margin (with battery effects)
-            available_capacity_before_margin = results['adjusted_grid_limit_before_margin'] - results['load_curve']
+            available_capacity_before_margin = plot_adjusted_grid_limit - plot_load_curve
             available_capacity_before_margin = np.maximum(available_capacity_before_margin, 0)  # Ensure non-negative
             
             # Plot available capacity up to adjusted limit before 80% margin (with battery effects)
@@ -2896,7 +2913,7 @@ with col1:
             
             # Add red dashed line to show the 20% margin that shouldn't be used
             if show_safety_margin:
-                margin_capacity = results['adjusted_grid_limit_before_margin'] - results['grid_limit']
+                margin_capacity = plot_adjusted_grid_limit - plot_grid_limit
                 ax2.plot(grid_time, margin_capacity, 'r--', linewidth=2, alpha=0.8, label='20% Safety Margin')
             
             # Add average line if requested
