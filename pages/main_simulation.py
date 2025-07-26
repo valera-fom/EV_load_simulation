@@ -15,6 +15,8 @@ from sim_setup import SimulationSetup
 from EV import EV, EV_MODELS
 from charger import CHARGER_MODELS
 from pages.components.capacity_analyzer import find_max_cars_capacity
+# Remove heavy RL import from top level - will import only when needed
+# from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
 
 def _is_light_color(hex_color):
     """Helper function to determine if a hex color is light or dark for text contrast."""
@@ -1563,6 +1565,7 @@ with st.sidebar:
         num_steps = st.slider("Number of Analysis Steps", min_value=1, max_value=4, value=1, 
                               help="Run capacity analysis in multiple steps for more accurate results")
         
+
         # Capacity Analysis Button (always enabled, auto-generates data if missing)
         if st.button("🎯 Find Maximum Cars", type="primary"):
             # Get current configuration parameters
@@ -1750,6 +1753,19 @@ with st.sidebar:
         else:
             st.warning("Please enter a valid number of substations (greater than 0)")
             evs_per_substation = 0
+
+        # RL Capacity Optimizer (separate from first optimizer)
+        st.write("---")
+        st.subheader("🤖 RL Capacity Optimizer")
+        try:
+            # Lazy import to avoid heavy imports on page load
+            from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
+            create_capacity_optimizer_ui()
+        except Exception as e:
+            st.error(f"❌ RL Capacity Optimizer error: {e}")
+            st.info("💡 This feature requires Stable-Baselines3. Install with: `pip install stable-baselines3`")
+
+
 
     # Dataset Selection
     with st.expander("📊 Dataset Selection", expanded=False):
@@ -2640,7 +2656,8 @@ with col1:
                     sim_duration=48 * 60,  # Always 48 hours for simulation
                     arrival_time_mean=12 * 60,
                     arrival_time_span=4 * 60,
-                    grid_power_limit=grid_power_limit  # Pass grid constraint to simulation
+                    grid_power_limit=grid_power_limit,  # Pass grid constraint to simulation
+                    verbose=False  # Disable verbose output for faster simulation
                 )
                 sim.evs = []
                 

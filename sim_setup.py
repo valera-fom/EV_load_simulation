@@ -5,10 +5,15 @@ from charger import Charger, CHARGER_MODELS
 from charging_procces import EVChargingProcess
 from ev_factory import create_charger
 import random
+import os
+
+def clear_console():
+    """Clear console output to prevent memory buildup from old simulation logs."""
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 class SimulationSetup:
     def __init__(self, ev_counts, charger_counts, sim_duration=24*60, time_step=1, 
-                 arrival_time_mean=12*60, arrival_time_span=4*60, grid_power_limit=0):
+                 arrival_time_mean=12*60, arrival_time_span=4*60, grid_power_limit=0, verbose=False):
         """
         ev_counts: dict of {ev_type: number_of_evs}
         charger_counts: dict of {charger_type: number_of_chargers}
@@ -17,6 +22,7 @@ class SimulationSetup:
         arrival_time_mean: mean arrival time in minutes (default 12h = noon)
         arrival_time_span: 2*sigma for normal distribution in minutes (default 4h)
         grid_power_limit: maximum grid power in kW (0 = no limit)
+        verbose: enable detailed debug output (default False)
         """
         self.ev_counts = ev_counts
         self.charger_counts = charger_counts
@@ -24,6 +30,7 @@ class SimulationSetup:
         self.time_step = time_step
         self.arrival_time_mean = arrival_time_mean
         self.arrival_time_span = arrival_time_span
+        self.verbose = verbose
         self.grid_power_profile = None
         if isinstance(grid_power_limit, (list, np.ndarray)):
             self.grid_power_profile = np.array(grid_power_limit)
@@ -45,11 +52,12 @@ class SimulationSetup:
         self.env.process(self.charging_coordinator())
         self._start_charger_processes()
         
-        # Debug: Check total charger count
-        total_chargers = sum(len(charger_list) for charger_list in self.chargers.values())
-        print(f"Total chargers initialized: {total_chargers}")
-        if total_chargers > 8:
-            print(f"WARNING: High charger count ({total_chargers}) - monitoring for resource issues")
+        # Debug: Check total charger count (only if verbose)
+        if self.verbose:
+            total_chargers = sum(len(charger_list) for charger_list in self.chargers.values())
+            print(f"Total chargers initialized: {total_chargers}")
+            if total_chargers > 8:
+                print(f"WARNING: High charger count ({total_chargers}) - monitoring for resource issues")
 
     def _init_chargers(self):
         for charger_type, count in self.charger_counts.items():
@@ -86,11 +94,12 @@ class SimulationSetup:
         # Generate normal distribution arrival times centered around the mean
         arrival_times = np.random.normal(self.arrival_time_mean, sigma, total_evs)
         
-        # Debug: Show distribution statistics
-        print(f"    Arrival time distribution:")
-        print(f"      Mean: {np.mean(arrival_times)/60:.1f} hours (target: {self.arrival_time_mean/60:.1f}h)")
-        print(f"      Std: {np.std(arrival_times)/60:.1f} hours (target: {sigma/60:.1f}h)")
-        print(f"      Range: {np.min(arrival_times)/60:.1f}h - {np.max(arrival_times)/60:.1f}h")
+        # Debug: Show distribution statistics (only if verbose)
+        if self.verbose:
+            print(f"    Arrival time distribution:")
+            print(f"      Mean: {np.mean(arrival_times)/60:.1f} hours (target: {self.arrival_time_mean/60:.1f}h)")
+            print(f"      Std: {np.std(arrival_times)/60:.1f} hours (target: {sigma/60:.1f}h)")
+            print(f"      Range: {np.min(arrival_times)/60:.1f}h - {np.max(arrival_times)/60:.1f}h")
         
         # Ensure arrival times are within simulation bounds
         arrival_times = np.clip(arrival_times, 0, self.sim_duration - 60)  # Leave 1 hour buffer
@@ -203,26 +212,25 @@ class SimulationSetup:
 
     def run_simulation(self):
         """
-        Run the simulation and return the load curve
+        Run the complete simulation.
         """
+        # Clear console to prevent memory buildup from old logs
+        if not self.verbose:
+            clear_console()
+        
+        # Schedule EVs with arrival times
         self.schedule_evs()
+        
+        # Run the simulation
         print(f"\nStarting simulation for {self.sim_duration/60:.1f} hours...")
         self.env.run(until=self.sim_duration)
-        print(f"Simulation completed at {self.env.now/60:.1f} hours")
+        print(f"Simulation completed at {self.env.now/60:.1f} hours\n")
         
-        # Debug: Show charger usage statistics
-        print(f"\nCharger Usage Statistics:")
-        for charger_type, charger_list in self.chargers.items():
-            total_chargers = len(charger_list)
-            print(f"  {charger_type}: {total_chargers} chargers")
+        # Display rejection notifications
+        self._display_rejection_notifications()
         
-        # Compute average queue time using only EVs that actually waited
-        queue_times = [ev.queue_time for ev in self.evs if hasattr(ev, 'queue_time') and ev.queue_time > 0]
-        avg_queue_time = np.mean(queue_times) if queue_times else 0
-        print(f"Average queue time (for {len(queue_times)} EVs that waited): {avg_queue_time:.2f} minutes")
-        self.avg_queue_time = avg_queue_time
-        self.num_queued_evs = len(queue_times)
-        return self.load_curve
+        # Display charger usage statistics
+        self._display_charger_statistics()
 
     def charging_coordinator(self):
         """
@@ -242,28 +250,30 @@ class SimulationSetup:
                 else:
                     current_limit = grid_limit if grid_limit is not None else float('inf')
                 
-                # Debug: Track grid limit behavior
-                print(f"  Grid limit: {current_limit:.2f} kW")
+                # Debug: Track grid limit behavior (only if verbose)
+                if self.verbose:
+                    print(f"  Grid limit: {current_limit:.2f} kW")
                 
-                # Debug: Track charger assignments and check for duplicates
-                charger_assignments = {}
-                for proc, charger_instance, done_event in self.charging_pool:
-                    charger_id = charger_instance.name
-                    if charger_id not in charger_assignments:
-                        charger_assignments[charger_id] = []
-                    charger_assignments[charger_id].append(proc.ev.name)
-                
-                # Debug: Print time step summary
-                total_evs_charging = len(self.charging_pool)
-                total_chargers = sum(len(charger_list) for charger_list in self.chargers.values())
-                print(f"\n[Time {sim_time}] EVs charging: {total_evs_charging}, Total chargers: {total_chargers}")
-                
-                # Debug: Check for multiple EVs on same charger
-                for charger_id, evs in charger_assignments.items():
-                    if len(evs) > 1:
-                        print(f"ERROR: Multiple EVs on charger {charger_id}: {evs}")
-                    else:
-                        print(f"  {charger_id}: {evs[0] if evs else 'None'}")
+                # Debug: Track charger assignments and check for duplicates (only if verbose)
+                if self.verbose:
+                    charger_assignments = {}
+                    for proc, charger_instance, done_event in self.charging_pool:
+                        charger_id = charger_instance.name
+                        if charger_id not in charger_assignments:
+                            charger_assignments[charger_id] = []
+                        charger_assignments[charger_id].append(proc.ev.name)
+                    
+                    # Debug: Print time step summary
+                    total_evs_charging = len(self.charging_pool)
+                    total_chargers = sum(len(charger_list) for charger_list in self.chargers.values())
+                    print(f"\n[Time {sim_time}] EVs charging: {total_evs_charging}, Total chargers: {total_chargers}")
+                    
+                    # Debug: Check for multiple EVs on same charger
+                    for charger_id, evs in charger_assignments.items():
+                        if len(evs) > 1:
+                            print(f"ERROR: Multiple EVs on charger {charger_id}: {evs}")
+                        else:
+                            print(f"  {charger_id}: {evs[0] if evs else 'None'}")
                 
                 pool = self.charging_pool.copy()
                 N = len(pool)
@@ -283,8 +293,10 @@ class SimulationSetup:
                 # Use the minimum of: grid limit, total charger capacity, total EV demand
                 effective_limit = min(current_limit, total_charger_capacity, total_ev_demand)
                 
-                print(f"  Grid limit: {current_limit:.2f} kW, Charger capacity: {total_charger_capacity:.2f} kW, EV demand: {total_ev_demand:.2f} kW")
-                print(f"  Effective limit: {effective_limit:.2f} kW")
+                # Debug output (only if verbose)
+                if self.verbose:
+                    print(f"  Grid limit: {current_limit:.2f} kW, Charger capacity: {total_charger_capacity:.2f} kW, EV demand: {total_ev_demand:.2f} kW")
+                    print(f"  Effective limit: {effective_limit:.2f} kW")
                 
                 remaining_power = effective_limit
                 allocations = [0.0] * N
@@ -305,19 +317,20 @@ class SimulationSetup:
                         if remaining_power < 1e-6:
                             break
                 
-                # Debug: Print allocation details and check total
-                total_allocated = sum(allocations)
-                print(f"  Total allocated: {total_allocated:.2f} kW")
-                for i, (proc, charger_instance, done_event) in enumerate(pool):
-                    print(f"    {proc.ev.name} on {charger_instance.name}: {allocations[i]:.2f} kW (max: {proc.ev.max_charging_power}, charger: {charger_instance.power_kW})")
-                
-                # Check if total allocated exceeds total charger capacity
-                if total_allocated > total_charger_capacity:
-                    print(f"ERROR: Total allocated ({total_allocated:.2f} kW) exceeds total charger capacity ({total_charger_capacity:.2f} kW)")
-                
-                # Check if we're hitting grid limit exactly
-                if abs(total_allocated - current_limit) < 0.1:
-                    print(f"WARNING: Allocation exactly matches grid limit ({current_limit:.2f} kW) - possible snapping behavior")
+                # Debug: Print allocation details and check total (only if verbose)
+                if self.verbose:
+                    total_allocated = sum(allocations)
+                    print(f"  Total allocated: {total_allocated:.2f} kW")
+                    for i, (proc, charger_instance, done_event) in enumerate(pool):
+                        print(f"    {proc.ev.name} on {charger_instance.name}: {allocations[i]:.2f} kW (max: {proc.ev.max_charging_power}, charger: {charger_instance.power_kW})")
+                    
+                    # Check if total allocated exceeds total charger capacity
+                    if total_allocated > total_charger_capacity:
+                        print(f"ERROR: Total allocated ({total_allocated:.2f} kW) exceeds total charger capacity ({total_charger_capacity:.2f} kW)")
+                    
+                    # Check if we're hitting grid limit exactly
+                    if abs(total_allocated - current_limit) < 0.1:
+                        print(f"WARNING: Allocation exactly matches grid limit ({current_limit:.2f} kW) - possible snapping behavior")
                 
                 for i, (proc, charger_instance, done_event) in enumerate(pool):
                     if done_event.triggered:
@@ -338,30 +351,28 @@ class SimulationSetup:
 
     def _display_rejection_notifications(self):
         """
-        Display notifications about rejected EVs
+        Display information about rejected EVs and reasons.
         """
         if self.rejected_evs:
-            print(f"\n⚠️  REJECTION NOTIFICATIONS:")
-            dc_only_rejected = [ev for ev, reason in self.rejected_evs if "DC charger not available" in reason]
-            ac_only_rejected = [ev for ev, reason in self.rejected_evs if "AC charger not available" in reason]
-            other_rejected = [ev for ev, reason in self.rejected_evs if "DC charger not available" not in reason and "AC charger not available" not in reason]
-            
-            if dc_only_rejected:
-                print(f"  🔌 DC-only vehicles rejected ({len(dc_only_rejected)}):")
-                for ev in dc_only_rejected:
-                    print(f"    - {ev.name} (max_power: {ev.max_charging_power} kW)")
-                print(f"    → Add DC chargers to accommodate these vehicles")
-            
-            if ac_only_rejected:
-                print(f"  🔌 AC-only vehicles rejected ({len(ac_only_rejected)}):")
-                for ev in ac_only_rejected:
-                    print(f"    - {ev.name} (max_power: {ev.max_charging_power} kW)")
-                print(f"    → Add AC chargers to accommodate these vehicles")
-            
-            if other_rejected:
-                print(f"  ❓ Other rejected vehicles ({len(other_rejected)}):")
-                for ev in other_rejected:
-                    print(f"    - {ev.name} (max_power: {ev.max_charging_power} kW)")
+            print(f"\nRejected EVs ({len(self.rejected_evs)}):")
+            for ev, reason in self.rejected_evs:
+                print(f"  {ev.name}: {reason}")
         else:
-            print(f"\n✅ All EVs scheduled successfully!")
+            print("\n✅ All EVs scheduled successfully!")
+    
+    def _display_charger_statistics(self):
+        """
+        Display charger usage statistics.
+        """
+        print(f"\nCharger Usage Statistics:")
+        for charger_type, charger_list in self.chargers.items():
+            total_chargers = len(charger_list)
+            print(f"  {charger_type}: {total_chargers} chargers")
+        
+        # Compute average queue time using only EVs that actually waited
+        queue_times = [ev.queue_time for ev in self.evs if hasattr(ev, 'queue_time') and ev.queue_time > 0]
+        avg_queue_time = np.mean(queue_times) if queue_times else 0
+        print(f"Average queue time (for {len(queue_times)} EVs that waited): {avg_queue_time:.2f} minutes")
+        self.avg_queue_time = avg_queue_time
+        self.num_queued_evs = len(queue_times)
 

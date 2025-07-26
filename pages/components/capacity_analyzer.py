@@ -399,7 +399,8 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                 sim_duration=48 * 60,  # Always 48 hours for simulation
                 arrival_time_mean=12 * 60,  # Not used since we manually schedule
                 arrival_time_span=4 * 60,   # Not used since we manually schedule
-                grid_power_limit=grid_power_limit
+                grid_power_limit=grid_power_limit,
+                verbose=False  # Disable verbose output for faster simulation
             )
             
             # Manually create EVs and schedule with pre-calculated arrival times (EXACTLY like normal simulation)

@@ -1,7 +1,6 @@
 from EV import EV, EV_MODELS
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import simpy
 from charger import Charger, CHARGER_MODELS
 
