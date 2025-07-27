@@ -60,7 +60,7 @@ def simulation_function(params):
         elif data_source == "Real Dataset":
             # For Real Dataset, try to use existing data or fall back to synthetic
             if power_values is None or len(power_values) == 0:
-                print("🔍 Debug: No real dataset loaded. Falling back to synthetic generation...")
+    
                 try:
                     import sys
                     import os
@@ -84,7 +84,7 @@ def simulation_function(params):
                     st.session_state.synthetic_metadata = result['metadata']
                     power_values = result['load_curve']
                     st.session_state.power_values = power_values
-                    print("✅ Synthetic load curve generated!")
+
                 except Exception as e:
                     print(f"❌ Error generating synthetic data: {e}")
                     return np.zeros(2880)
@@ -302,22 +302,12 @@ def simulation_function(params):
         
         # Ensure we don't have more arrival times than EVs
         if len(arrival_times) > total_evs:
-            print(f"🔍 Debug: Too many arrival times ({len(arrival_times)}) for {total_evs} EVs, truncating...")
             arrival_times = arrival_times[:total_evs]
         elif len(arrival_times) < total_evs:
-            print(f"🔍 Debug: Too few arrival times ({len(arrival_times)}) for {total_evs} EVs, adding random times...")
             # Add random arrival times to reach total_evs
             additional_times = np.random.uniform(0, 48 * 60 - 60, total_evs - len(arrival_times))
             arrival_times = np.concatenate([arrival_times, additional_times])
             arrival_times.sort()
-        
-        print(f"🔍 Debug: Generated {len(arrival_times)} arrival times for {total_evs} EVs")
-        
-        # Debug TOU values
-        if time_of_use_enabled and tou_periods:
-            print(f"🔍 Debug: TOU periods being used:")
-            for period in tou_periods:
-                print(f"  {period['name']}: {period['adoption']}% ({period['start']}-{period['end']}h)")
         
         # Create simulation setup (EXACTLY like main simulation)
         sim = SimulationSetup(
@@ -460,10 +450,10 @@ def create_bayesian_optimizer_ui():
         # Only add parameters that are actually being optimized
         if 'smart_charging' in active_strategies:
             active_params.update({
-                'tou_super_offpeak_adoption': (5, 40),
-                'tou_offpeak_adoption': (10, 50),
-                'tou_midpeak_adoption': (5, 40),
-                'tou_peak_adoption': (10, 50)
+                'tou_super_offpeak_adoption': (20, 40),
+                'tou_offpeak_adoption': (20, 40),
+                'tou_midpeak_adoption': (20, 40),
+                'tou_peak_adoption': (20, 40)
             })
         
         # Always include car_count
@@ -585,24 +575,36 @@ def create_bayesian_optimizer_ui():
                 st.session_state.optimization_strategy['tou_midpeak_adoption_percent'] = round(float(best_params['tou_midpeak_adoption'].rstrip('%')), 2)
                 st.session_state.optimization_strategy['tou_peak_adoption_percent'] = round(float(best_params['tou_peak_adoption'].rstrip('%')), 2)
                 
-                # Also update the time_of_use_periods with the optimized values
-                optimized_tou_periods = [
-                    {'name': 'super_offpeak', 'start': 0, 'end': 6, 'adoption': round(float(best_params['tou_super_offpeak_adoption'].rstrip('%')), 2)},
-                    {'name': 'offpeak', 'start': 6, 'end': 17, 'adoption': round(float(best_params['tou_offpeak_adoption'].rstrip('%')), 2)},
-                    {'name': 'midpeak', 'start': 17, 'end': 20, 'adoption': round(float(best_params['tou_midpeak_adoption'].rstrip('%')), 2)},
-                    {'name': 'peak', 'start': 20, 'end': 24, 'adoption': round(float(best_params['tou_peak_adoption'].rstrip('%')), 2)}
-                ]
-                st.session_state.optimization_strategy['time_of_use_periods'] = optimized_tou_periods
-                
-                # Update the time_of_use_timeline that the UI sliders read from
+                # Update the time_of_use_periods with the optimized values using dynamic timeline
                 if 'time_of_use_timeline' in st.session_state:
                     timeline = st.session_state.time_of_use_timeline
-                    if len(timeline['periods']) >= 4:
-                        # Update each period's adoption percentage
-                        timeline['periods'][0]['adoption'] = round(float(best_params['tou_super_offpeak_adoption'].rstrip('%')), 2)  # Super Off-Peak
-                        timeline['periods'][1]['adoption'] = round(float(best_params['tou_offpeak_adoption'].rstrip('%')), 2)      # Off-Peak
-                        timeline['periods'][2]['adoption'] = round(float(best_params['tou_midpeak_adoption'].rstrip('%')), 2)      # Mid-Peak
-                        timeline['periods'][3]['adoption'] = round(float(best_params['tou_peak_adoption'].rstrip('%')), 2)        # Peak
+                    optimized_tou_periods = []
+                    
+                    # Map optimization parameters to timeline periods
+                    param_mapping = {
+                        'tou_super_offpeak_adoption': 0,  # First period
+                        'tou_offpeak_adoption': 1,        # Second period  
+                        'tou_midpeak_adoption': 2,        # Third period
+                        'tou_peak_adoption': 3            # Fourth period
+                    }
+                    
+                    # Create optimized periods based on actual timeline structure
+                    for i, period in enumerate(timeline['periods']):
+                        if i < 4:  # Only handle first 4 periods
+                            param_key = list(param_mapping.keys())[i]
+                            adoption_value = round(float(best_params[param_key].rstrip('%')), 2)
+                            
+                            optimized_period = {
+                                'name': period['name'],
+                                'start': period['hours'][0] if period['hours'] else 0,
+                                'end': period['hours'][-1] + 1 if period['hours'] else 24,
+                                'adoption': adoption_value
+                            }
+                            optimized_tou_periods.append(optimized_period)
+                    
+                    st.session_state.optimization_strategy['time_of_use_periods'] = optimized_tou_periods
+                
+
             
             # Update EV and charger counts
             car_count = best_params['car_count']
