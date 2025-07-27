@@ -15,8 +15,7 @@ from sim_setup import SimulationSetup
 from EV import EV, EV_MODELS
 from charger import CHARGER_MODELS
 from pages.components.capacity_analyzer import find_max_cars_capacity
-# Remove heavy RL import from top level - will import only when needed
-# from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
+# Import optimization components
 
 def _is_light_color(hex_color):
     """Helper function to determine if a hex color is light or dark for text contrast."""
@@ -335,7 +334,7 @@ with st.sidebar:
                     # Ensure span is a float
                     span_value = float(peak['span']) if peak['span'] is not None else 1.5
                     new_span = st.slider("Time Span (1σ in hours)", min_value=0.5, max_value=12.0, value=span_value, step=0.5, key="peak_span_0", help="Spread of arrival times (1 standard deviation)")
-                    new_quantity = st.number_input("EV Quantity", min_value=1, max_value=100, value=int(peak['quantity']), key="peak_quantity_0")
+                    new_quantity = st.number_input("EV Quantity", min_value=1, max_value=1000, value=int(peak['quantity']), key="peak_quantity_0")
                 
                 # Update peak data
                 st.session_state.time_peaks[0] = {
@@ -1249,11 +1248,11 @@ with st.sidebar:
             with col2:
                 discharge_start_hour = st.slider(
                     "Discharge Start Hour",
-                    min_value=20.0,
-                    max_value=30.0,
+                    min_value=18.0,
+                    max_value=26.0,
                     value=float(st.session_state.optimization_strategy.get('discharge_start_hour', 20)),  # 8pm default
                     step=0.5,
-                    help="Hour when battery discharge starts (20-30)",
+                    help="Hour when battery discharge starts (18-26)",
                     key="pv_discharge_start_hour"
                 )
                 min_discharge_duration = battery_capacity / max_discharge_rate
@@ -1376,10 +1375,10 @@ with st.sidebar:
                     key="grid_charge_start_hour"
                 )
                 grid_battery_charge_duration = st.slider(
-                    "Charging Duration (hours)",
+                    "Charge Duration (hours)",
                     min_value=1,
                     max_value=12,
-                    value=st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8),
+                    value=int(st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8)),
                     step=1,
                     help="Duration of battery charging (hours)",
                     key="grid_charge_duration"
@@ -1387,18 +1386,18 @@ with st.sidebar:
             with col2:
                 grid_battery_discharge_start_hour = st.slider(
                     "Discharge Start Hour",
-                    min_value=20.0,
-                    max_value=30.0,
+                    min_value=18.0,
+                    max_value=26.0,
                     value=float(st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 20)),
                     step=0.5,
-                    help="Hour when battery discharge starts (20-30)",
+                    help="Hour when battery discharge starts (18-26)",
                     key="grid_discharge_start_hour"
                 )
                 grid_battery_discharge_duration = st.slider(
                     "Discharge Duration (hours)",
                     min_value=1,
                     max_value=8,
-                    value=st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4),
+                    value=int(st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)),
                     step=1,
                     help="Duration of battery discharge (hours)",
                     key="grid_discharge_duration"
@@ -1408,7 +1407,7 @@ with st.sidebar:
                 "Grid-Charged Battery Adoption (%)",
                 min_value=0,
                 max_value=100,
-                value=st.session_state.optimization_strategy.get('grid_battery_adoption_percent', default_grid_battery_adoption),
+                value=int(st.session_state.optimization_strategy.get('grid_battery_adoption_percent', default_grid_battery_adoption)),
                 step=5,
                 help="Percentage of households with grid-charged battery systems",
                 key="grid_battery_adoption_percent"
@@ -1457,18 +1456,18 @@ with st.sidebar:
                     "V2G Adoption (%)",
                     min_value=0,
                     max_value=100,
-                    value=st.session_state.optimization_strategy.get('v2g_adoption_percent', default_v2g_adoption),
+                    value=int(st.session_state.optimization_strategy.get('v2g_adoption_percent', default_v2g_adoption)),
                     step=5,
                     help="Percentage of EVs that can participate in V2G",
                     key="v2g_adoption_percent"
                 )
                 v2g_discharge_start_hour = st.slider(
                     "V2G Discharge Start Hour",
-                    min_value=17.0,
-                    max_value=30.0,
+                    min_value=18.0,
+                    max_value=26.0,
                     value=float(st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20)),
                     step=0.5,
-                    help="Hour when V2G discharge starts (20-30)",
+                    help="Hour when V2G discharge starts (18-26)",
                     key="v2g_discharge_start_hour"
                 )
                 v2g_max_discharge_rate = st.number_input(
@@ -1506,11 +1505,11 @@ with st.sidebar:
                 )
                 v2g_recharge_arrival_hour = st.slider(
                     "V2G Recharge Arrival Hour",
-                    min_value=24.0,
+                    min_value=0.0,
                     max_value=30.0,
                     value=float(st.session_state.optimization_strategy.get('v2g_recharge_arrival_hour', 26.0)),
                     step=0.5,
-                    help="Hour when V2G EVs start recharging (24-30 = next day 0-6)",
+                    help="Hour when V2G EVs start recharging (0-30)",
                     key="v2g_recharge_arrival_hour"
                 )
 
@@ -1679,15 +1678,13 @@ with st.sidebar:
                     st.error("❌ Could not determine maximum capacity")
                 
         # RL Capacity Optimizer (separate from first optimizer)
-        st.write("---")
-        st.subheader("🤖 RL Capacity Optimizer")
         try:
             # Lazy import to avoid heavy imports on page load
-            from rl_components.capacity_optimizer_ui import create_capacity_optimizer_ui
-            create_capacity_optimizer_ui()
+            from pages.components.bayesian_optimizer_ui import create_bayesian_optimizer_ui
+            create_bayesian_optimizer_ui()
         except Exception as e:
-            st.error(f"❌ RL Capacity Optimizer error: {e}")
-            st.info("💡 This feature requires Stable-Baselines3. Install with: `pip install stable-baselines3`")
+            st.error(f"❌ Bayesian Capacity Optimizer error: {e}")
+            st.info("💡 This feature requires scikit-learn. Install with: `pip install scikit-learn`")
 
     # EV Number Calculator
     with st.expander("🧮 EV Number Calculator", expanded=False):

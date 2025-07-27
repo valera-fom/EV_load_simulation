@@ -1,0 +1,1 @@
+[33m65c9530[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix grid battery energy balance: calculate rates from capacity and duration instead of using max_rate
