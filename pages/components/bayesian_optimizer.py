@@ -233,14 +233,15 @@ class BayesianOptimizer:
             
             # Combine metrics into reward (weighted sum)
             # Primary: Grid compliance (most important)
-            overuse_weight = -25.0       # Heavy penalty for overuse (critical)
-            underuse_weight = -2.0       # Light penalty for underuse (less critical)
-            violation_freq_weight = -5.0  # Penalty for frequent violations
-            violation_duration_weight = -2.0  # Penalty for long violations
+            rmse_weight = -8.0          # Heavy penalty for overall RMSE (critical)
+            overuse_weight = -6.4       # Heavy penalty for overuse (critical)
+            underuse_weight = -5.0      # Light penalty for underuse (less critical)
+            violation_freq_weight = -2.0  # Penalty for frequent violations
+            violation_duration_weight = -1.0  # Penalty for long violations
             
             # Secondary: Load quality (moderate importance)
             variance_weight = -0.2       # Light penalty for high variance
-            peak_valley_weight = -0.1    # Light penalty for high peak-valley ratio
+            peak_valley_weight = -0.33    # Light penalty for high peak-valley ratio
             ramp_weight = -0.05          # Very light penalty for high ramp rate
             smoothness_weight = -0.1     # Light penalty for lack of smoothness
             
@@ -251,14 +252,11 @@ class BayesianOptimizer:
             tou_efficiency_weight = 1.0  # Bonus for TOU efficiency
             
             # Car count bonus (encourage using more cars)
-            car_count_bonus_weight = 1.0  # Good bonus for using more cars
+            car_count_bonus_weight = 1.8  # Good bonus for using more cars
             car_count = params.get('car_count', 100)
             car_count_bonus = min(car_count / 200.0, 1.0)  # Normalize to 0-1, max at 200 cars
             
-            # Mid-peak bonus (encourage higher mid-peak usage)
-            mid_peak_bonus_weight = 1.0  # Bonus for higher mid-peak values
-            mid_peak_value = params.get('tou_midpeak_adoption', 25)
-            mid_peak_bonus = min(mid_peak_value / 50.0, 1.0)  # Normalize to 0-1, max bonus at 50%
+            
             
             # TOU diversity penalty (encourage balanced percentages)
             tou_diversity_penalty_weight = -0.5  # Penalty for very diverse TOU percentages
@@ -306,7 +304,8 @@ class BayesianOptimizer:
                 utilization_bonus += 0.5  # Extra bonus for high utilization
             
             # Calculate final reward with logical scaling
-            reward = (overuse_weight * min(overuse_rmse / max_margin, 1.0) + 
+            reward = (rmse_weight * min(rmse / max_margin, 1.0) +
+                     overuse_weight * min(overuse_rmse / max_margin, 1.0) + 
                      underuse_weight * min(underuse_rmse / max_margin, 1.0) +
                      violation_freq_weight * violation_frequency +
                      violation_duration_weight * min(max_violation_duration / len(load_curve_filtered), 1.0) +
@@ -319,7 +318,6 @@ class BayesianOptimizer:
                      distribution_weight * normalized_distribution +
                      tou_efficiency_weight * min(tou_efficiency, 1.0) +
                      car_count_bonus_weight * car_count_bonus +
-                     mid_peak_bonus_weight * mid_peak_bonus + # Add mid-peak bonus
                      tou_diversity_penalty_weight * tou_diversity_penalty) # Add TOU diversity penalty
             
             # Add debug info for first few iterations
