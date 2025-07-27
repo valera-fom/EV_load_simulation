@@ -2964,21 +2964,34 @@ with col1:
         
         # Display statistics under the graph
         st.header("📊 Performance Metrics")
+        
+        # Filter load curve to hours 5-48 (minutes 300-2880) for performance calculations
+        # Keep graphs as they are, only filter calculations
+        start_minute = 300  # 5 hours * 60 minutes
+        end_minute = 2880   # 48 hours * 60 minutes
+        
+        # Create filtered load curve for performance calculations
+        if len(results['load_curve']) >= end_minute:
+            filtered_load_curve = results['load_curve'][start_minute:end_minute]
+        else:
+            # If simulation is shorter than 48 hours, use what's available
+            filtered_load_curve = results['load_curve']
+        
         col_stats1, col_stats2, col_stats3 = st.columns(3)
         
         with col_stats1:
-            st.metric("Peak Load", f"{np.max(results['load_curve']):.2f} kW", 
-                     help="Maximum instantaneous power demand during the simulation")
+            st.metric("Peak Load", f"{np.max(filtered_load_curve):.2f} kW", 
+                     help="Maximum instantaneous power demand during hours 5-48 of the simulation")
             
             # Calculate average load only for periods with active charging
-            active_periods = results['load_curve'] > 0
+            active_periods = filtered_load_curve > 0
             if np.any(active_periods):
-                active_average = np.mean(results['load_curve'][active_periods])
+                active_average = np.mean(filtered_load_curve[active_periods])
                 st.metric("Average Load (Active Periods)", f"{active_average:.2f} kW",
-                         help="Average power demand only during periods when EVs are actively charging")
+                         help="Average power demand only during periods when EVs are actively charging (hours 5-48)")
             else:
                 st.metric("Average Load (Active Periods)", "0.00 kW",
-                         help="Average power demand only during periods when EVs are actively charging")
+                         help="Average power demand only during periods when EVs are actively charging (hours 5-48)")
             
             st.metric("Total EVs", f"{results['total_evs']} EVs",
                      help="Total number of EVs in the simulation")
@@ -2986,59 +2999,65 @@ with col1:
             # Calculate max simultaneous EVs
             if np.any(active_periods):
                 ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11.0)  # Default 11 kW
-                max_simultaneous_evs = int(np.max(results['load_curve']) / ev_charging_rate)
+                max_simultaneous_evs = int(np.max(filtered_load_curve) / ev_charging_rate)
                 st.metric("Max Simultaneous EVs", f"{max_simultaneous_evs} EVs",
-                         help="Maximum number of EVs charging at the same time (based on peak load)")
+                         help="Maximum number of EVs charging at the same time (based on peak load, hours 5-48)")
             else:
                 st.metric("Max Simultaneous EVs", "0 EVs",
-                         help="Maximum number of EVs charging at the same time (based on peak load)")
+                         help="Maximum number of EVs charging at the same time (based on peak load, hours 5-48)")
         
         with col_stats2:
-            st.metric("Total Energy", f"{np.sum(results['load_curve']) / 60:.2f} kWh",
-                     help="Total energy consumed by all EVs during the simulation (kWh)")
+            st.metric("Total Energy", f"{np.sum(filtered_load_curve) / 60:.2f} kWh",
+                     help="Total energy consumed by all EVs during hours 5-48 of the simulation (kWh)")
             
             # Calculate peak hours analysis
             if np.any(active_periods):
-                peak_load = np.max(results['load_curve'])
+                peak_load = np.max(filtered_load_curve)
                 peak_threshold = peak_load * 0.9  # 90% of peak load
-                peak_hours = results['load_curve'] >= peak_threshold
+                peak_hours = filtered_load_curve >= peak_threshold
                 peak_hour_count = np.sum(peak_hours)
-                peak_start = np.where(peak_hours)[0][0] / 60 if np.any(peak_hours) else 0
-                peak_end = np.where(peak_hours)[0][-1] / 60 if np.any(peak_hours) else 0
+                # Adjust time to account for filtering (add 5 hours to start time)
+                peak_start = (np.where(peak_hours)[0][0] / 60 + 5) if np.any(peak_hours) else 0
+                peak_end = (np.where(peak_hours)[0][-1] / 60 + 5) if np.any(peak_hours) else 0
                 st.metric("Peak Hours (90% of max)", f"{peak_start:.1f}-{peak_end:.1f}h",
-                         help="Time range when load is ≥90% of peak load")
+                         help="Time range when load is ≥90% of peak load (hours 5-48)")
             else:
                 st.metric("Peak Hours (90% of max)", "No peak",
-                         help="Time range when load is ≥90% of peak load")
+                         help="Time range when load is ≥90% of peak load (hours 5-48)")
             
             # Calculate average energy per EV
             if results['total_evs'] > 0:
-                avg_energy_per_ev = (np.sum(results['load_curve']) / 60) / results['total_evs']
+                avg_energy_per_ev = (np.sum(filtered_load_curve) / 60) / results['total_evs']
                 st.metric("Avg Energy per EV", f"{avg_energy_per_ev:.1f} kWh",
-                         help="Average energy consumed per EV during the simulation")
+                         help="Average energy consumed per EV during hours 5-48 of the simulation")
             else:
                 st.metric("Avg Energy per EV", "0.0 kWh",
-                         help="Average energy consumed per EV during the simulation")
+                         help="Average energy consumed per EV during hours 5-48 of the simulation")
             
             # Calculate charging session duration
             if results['total_evs'] > 0:
                 # Calculate based on energy consumed and charging rate
-                total_energy_kwh = np.sum(results['load_curve']) / 60  # Convert from kW-minutes to kWh
+                total_energy_kwh = np.sum(filtered_load_curve) / 60  # Convert from kW-minutes to kWh
                 avg_energy_per_ev = total_energy_kwh / results['total_evs']
                 ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11.0)  # Default 11 kW
                 
                 # Average session duration = average energy per EV / charging rate
                 avg_session_duration = avg_energy_per_ev / ev_charging_rate
                 st.metric("Avg Charging Session", f"{avg_session_duration:.1f}h",
-                         help="Average charging session duration per EV (based on energy consumed)")
+                         help="Average charging session duration per EV (based on energy consumed, hours 5-48)")
             else:
                 st.metric("Avg Charging Session", "0.0h",
-                         help="Average charging session duration per EV (based on energy consumed)")
+                         help="Average charging session duration per EV (based on energy consumed, hours 5-48)")
         
         with col_stats3:
             if results['grid_limit'] is not None:
-                # Calculate available capacity (same as second graph)
-                available_capacity_before_margin = results['adjusted_grid_limit_before_margin'] - results['load_curve']
+                # Calculate available capacity (same as second graph) - use filtered data for calculations
+                if len(results['adjusted_grid_limit_before_margin']) >= end_minute:
+                    filtered_grid_limit = results['adjusted_grid_limit_before_margin'][start_minute:end_minute]
+                else:
+                    filtered_grid_limit = results['adjusted_grid_limit_before_margin']
+                
+                available_capacity_before_margin = filtered_grid_limit - filtered_load_curve
                 available_capacity_before_margin = np.maximum(available_capacity_before_margin, 0)  # Ensure non-negative
                 
                 max_available_capacity = np.max(available_capacity_before_margin)
@@ -3046,20 +3065,20 @@ with col1:
                 avg_available_capacity = np.mean(available_capacity_before_margin)
                 
                 st.metric("Max Available Capacity", f"{max_available_capacity:.1f} kW",
-                         help="Maximum available grid capacity during the simulation (from second graph)")
+                         help="Maximum available grid capacity during hours 5-48 (from second graph)")
                 st.metric("Min Available Capacity", f"{min_available_capacity:.1f} kW",
-                         help="Minimum available grid capacity during the simulation (from second graph)")
+                         help="Minimum available grid capacity during hours 5-48 (from second graph)")
                 st.metric("Avg Available Capacity", f"{avg_available_capacity:.1f} kW",
-                         help="Average available grid capacity during the simulation (from second graph)")
+                         help="Average available grid capacity during hours 5-48 (from second graph)")
                 
                 # Calculate grid utilization factor (avg vs max available capacity)
                 if max_available_capacity > 0:
                     grid_utilization = (avg_available_capacity / max_available_capacity) * 100
                     st.metric("Grid Utilization Factor", f"{grid_utilization:.1f}%",
-                             help="Ratio of average to max available capacity (higher = more consistent grid usage)")
+                             help="Ratio of average to max available capacity during hours 5-48 (higher = more consistent grid usage)")
                 else:
                     st.metric("Grid Utilization Factor", "0.0%",
-                             help="Ratio of average to max available capacity (higher = more consistent grid usage)")
+                             help="Ratio of average to max available capacity during hours 5-48 (higher = more consistent grid usage)")
             else:
                 st.metric("Grid Mode", results['grid_mode'],
                          help="Current grid constraint mode (None = no limits)")

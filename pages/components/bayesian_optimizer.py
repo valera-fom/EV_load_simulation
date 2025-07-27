@@ -246,9 +246,9 @@ class BayesianOptimizer:
             smoothness_weight = -0.1     # Light penalty for lack of smoothness
             
             # Tertiary: Efficiency and utilization (bonuses)
-            utilization_weight = 2.0     # Good bonus for utilization (50-90%)
+            utilization_weight = 4.0     # Good bonus for utilization (50-90%)
             peak_shaving_weight = 1.5    # Bonus for effective peak shaving
-            distribution_weight = -0.05  # Light penalty for uneven distribution
+            distribution_weight = -0.2  # Light penalty for uneven distribution
             tou_efficiency_weight = 1.0  # Bonus for TOU efficiency
             
             # Car count bonus (encourage using more cars)
