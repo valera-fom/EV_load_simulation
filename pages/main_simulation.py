@@ -3267,15 +3267,15 @@ with col2:
         # EV Adoption Percentage
         if 'ev_calculator' in st.session_state:
             ev_calc = st.session_state.ev_calculator
-            total_cars_system = ev_calc.get('total_cars', 6100000)  # Default from calculator
-            penetration_percent = ev_calc.get('penetration_percent', 20.0)
-            total_evs_system = total_cars_system * penetration_percent / 100
+            total_cars_system = ev_calc.get('total_cars', 6100000)
+            num_substations = ev_calc.get('num_substations', 69000)
             
-            if total_evs_system > 0:
-                adoption_percentage = (results['total_evs'] / total_evs_system) * 100
-                st.markdown("**📊 EV Adoption**")
-                st.write(f"• **System EVs:** {total_evs_system:,.0f} ({penetration_percent:.1f}% penetration)")
-                st.write(f"• **Simulation EVs:** {results['total_evs']:,.0f}")
+            # Calculate adoption percentage: total cars in the system at this year/(number of cars in simulation (per substation) * number of substations) 
+            adoption_percentage = total_cars_system / (results['total_evs'] * num_substations) * 100
+            st.markdown("**📊 EV Adoption**")
+            st.write(f"• **System EVs:** {total_cars_system:,.0f}")
+            st.write(f"• **Simulation EVs (per substation):** {results['total_evs']:,.0f}")
+            st.write(f"• **Adoption Rate:** {adoption_percentage:.2f}%")
         
         # Active Strategies Summary
         active_strategies = st.session_state.get('active_strategies', [])
