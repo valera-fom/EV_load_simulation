@@ -837,10 +837,10 @@ with st.sidebar:
             if 'original_timeline' not in st.session_state:
                 st.session_state.original_timeline = {
                     'periods': [
-                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 0, 'hours': list(range(2, 6))},
-                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 0, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 0, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 100, 'hours': list(range(9, 11)) + list(range(18, 21))}
+                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
+                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
                     ]
                 }
             
@@ -849,6 +849,20 @@ with st.sidebar:
             # Period adoption percentages at the top
             st.write("**📊 Period Adoption Percentages:**")
             st.write("Specify what percentage of users choose each period:")
+            
+            # Apply optimized TOU values if available from Bayesian optimization
+            if 'optimized_tou_values' in st.session_state:
+                optimized_values = st.session_state.optimized_tou_values
+                
+                # Map optimized values to timeline periods
+                if len(timeline['periods']) >= 4:
+                    timeline['periods'][0]['adoption'] = optimized_values.get('tou_super_offpeak', 25)  # Super Off-Peak
+                    timeline['periods'][1]['adoption'] = optimized_values.get('tou_offpeak', 25)        # Off-Peak
+                    timeline['periods'][2]['adoption'] = optimized_values.get('tou_midpeak', 25)        # Mid-Peak
+                    timeline['periods'][3]['adoption'] = optimized_values.get('tou_peak', 25)          # Peak
+                
+                # Clear the optimized values after applying them
+                del st.session_state.optimized_tou_values
             
             # Create columns for each period with color blocks
             period_cols = st.columns(len(timeline['periods']))
@@ -1650,7 +1664,8 @@ with st.sidebar:
             if power_values is None or len(power_values) == 0:
                 st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
                 st.stop()
-            with st.spinner("🔍 Analyzing system capacity..."):
+            
+            with st.spinner("Calculating maximum EV capacity..."):
                 max_cars = find_max_cars_capacity(
                     ev_config=ev_config,
                     charger_config=charger_config,
@@ -1662,6 +1677,7 @@ with st.sidebar:
                     sim_duration=sim_duration,
                     num_steps=num_steps
                 )
+                
                 if max_cars is not None:
                     st.session_state.capacity_analysis_results = {
                         'max_cars': max_cars,
@@ -1673,18 +1689,44 @@ with st.sidebar:
                         'available_load_fraction': available_load_fraction,
                         'power_values': power_values
                     }
-                    st.success(f"🎯 **Maximum Capacity Found: {max_cars} EVs**")
+                    
+                    # Automatically apply the max cars results
+                    st.session_state.total_evs = max_cars
+                    st.session_state.charger_config['ac_count'] = max_cars
+                    if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
+                        st.session_state.time_peaks[0]['quantity'] = max_cars
+                    
+                    # Display capacity analysis results table
+                    st.write("**📊 Capacity Analysis Results:**")
+                    st.write(f"**Maximum EVs: {max_cars}**")
+                    
+                    # Store results in session state for persistence
+                    st.session_state.capacity_analysis_completed = True
+                    st.session_state.capacity_analysis_max_cars = max_cars
+                    
+                    # Rerun to apply the values to the configuration
+                    st.rerun()
                 else:
                     st.error("❌ Could not determine maximum capacity")
                 
+        # Display stored capacity analysis results if available
+        if st.session_state.get('capacity_analysis_completed', False):
+            max_cars = st.session_state.get('capacity_analysis_max_cars', 0)
+            
+            if max_cars > 0:
+                st.write("**📊 Capacity Analysis Results:**")
+                st.write(f"**Maximum EVs: {max_cars}**")
+        
         # RL Capacity Optimizer (separate from first optimizer)
         try:
             # Lazy import to avoid heavy imports on page load
-            from pages.components.bayesian_optimizer_ui import create_bayesian_optimizer_ui
-            create_bayesian_optimizer_ui()
+            from pages.components.gradient_optimizer_ui import create_gradient_optimizer_ui
+            create_gradient_optimizer_ui()
         except Exception as e:
-            st.error(f"❌ Bayesian Capacity Optimizer error: {e}")
+            st.error(f"❌ Gradient-Based Capacity Optimizer error: {e}")
             st.info("💡 This feature requires scikit-learn. Install with: `pip install scikit-learn`")
+
+
 
     # EV Number Calculator
     with st.expander("🧮 EV Number Calculator", expanded=False):

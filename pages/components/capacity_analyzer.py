@@ -11,12 +11,27 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
     Find the maximum number of cars that can fit under the margin curve.
     Uses the exact same approach as the normal simulation.
     """
-    # Multi-step capacity analysis
-    current_cars = 20
+    # Get current number of cars from configuration
+    current_cars = 20  # Default fallback
+    
+    # Try to get current cars from time_peaks first
+    if time_peaks and len(time_peaks) > 0:
+        current_cars = time_peaks[0].get('quantity', 20)
+    
+    # If not found in time_peaks, try to get from session state
+    if current_cars == 20:
+        current_cars = st.session_state.get('total_evs', 20)
+    
+    # If still default, try to get from charger config
+    if current_cars == 20:
+        current_cars = charger_config.get('ac_count', 20)
+    
+    # Ensure we have a reasonable starting point (minimum 5 cars)
+    current_cars = max(5, current_cars)
+    
     final_max_cars = current_cars
     
     for step in range(num_steps):
-        st.write(f"**Step {step+1}/{num_steps}: Calculating maximum EV capacity...**")
         # Create dynamic EV model (EXACTLY like normal simulation)
         dynamic_ev_model = {
             'name': 'Custom EV',
@@ -491,8 +506,6 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
             
             current_cars = max_cars
             final_max_cars = max_cars
-            
-            st.write(f"**Maximum EVs found: {final_max_cars}**")
             
         except Exception as e:
             st.error(f"❌ Error during capacity analysis: {e}")
