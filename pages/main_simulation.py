@@ -2448,17 +2448,28 @@ with col1:
                         for minute in range(len(grid_profile_full)):
                             time_of_day = minute % (24 * 60)
                             
-                            # Phase 1: Battery charging period (PV charges batteries, no grid effect)
-                            if (time_of_day >= pv_start_minute and time_of_day < charge_end_minute):
-                                pv_battery_charge_curve[minute] = total_charge_power
-                                # No effect on grid capacity - PV charges batteries directly
+                            # Day Phase: Simultaneous battery charging and grid support
+                            if (time_of_day >= pv_start_minute and time_of_day < system_support_end_minute):
+                                # Calculate total PV power available
+                                total_pv_power = total_system_support_power
+                                
+                                # Calculate required charging rate to fill batteries over the full time period
+                                total_battery_capacity = pv_evs * battery_capacity  # Total capacity of all batteries
+                                charging_time_hours = pv_duration  # Full day period (e.g., 8 hours)
+                                required_charging_rate = total_battery_capacity / charging_time_hours  # e.g., 400/8 = 50 kW
+                                
+                                # Calculate remaining power for grid support
+                                grid_support_power = max(0, total_pv_power - required_charging_rate)
+                                
+                                # Apply battery charging (no grid effect - PV charges batteries directly)
+                                pv_battery_charge_curve[minute] = required_charging_rate
+                                
+                                # Apply grid support (increases available capacity)
+                                if grid_support_power > 0:
+                                    pv_direct_support_curve[minute] = grid_support_power
+                                    adjusted_grid_profile[minute] += grid_support_power  # Increase available capacity
                             
-                            # Phase 2: System support period (increases available capacity)
-                            elif (time_of_day >= charge_end_minute and time_of_day < system_support_end_minute):
-                                pv_direct_support_curve[minute] = total_system_support_power
-                                adjusted_grid_profile[minute] += total_system_support_power  # Increase available capacity
-                            
-                            # Phase 3: Evening discharge period (increases available capacity)
+                            # Evening Phase: Battery discharge (unchanged)
                             elif (time_of_day >= discharge_start_minute and time_of_day < discharge_end_minute):
                                 pv_battery_discharge_curve[minute] = total_discharge_power
                                 adjusted_grid_profile[minute] += total_discharge_power  # Increase available capacity
@@ -2576,17 +2587,28 @@ with col1:
                         for minute in range(len(grid_profile_full)):
                             time_of_day = minute % (24 * 60)
                             
-                            # Phase 1: Battery charging period (PV charges batteries, no grid effect)
-                            if (time_of_day >= pv_start_minute and time_of_day < charge_end_minute):
-                                pv_battery_charge_curve[minute] = total_charge_power
-                                # No effect on grid capacity - PV charges batteries directly
+                            # Day Phase: Simultaneous battery charging and grid support
+                            if (time_of_day >= pv_start_minute and time_of_day < system_support_end_minute):
+                                # Calculate total PV power available
+                                total_pv_power = total_system_support_power
+                                
+                                # Calculate required charging rate to fill batteries over the full time period
+                                total_battery_capacity = pv_evs * battery_capacity  # Total capacity of all batteries
+                                charging_time_hours = pv_duration  # Full day period (e.g., 8 hours)
+                                required_charging_rate = total_battery_capacity / charging_time_hours  # e.g., 400/8 = 50 kW
+                                
+                                # Calculate remaining power for grid support
+                                grid_support_power = max(0, total_pv_power - required_charging_rate)
+                                
+                                # Apply battery charging (no grid effect - PV charges batteries directly)
+                                pv_battery_charge_curve[minute] = required_charging_rate
+                                
+                                # Apply grid support (increases available capacity)
+                                if grid_support_power > 0:
+                                    pv_direct_support_curve[minute] = grid_support_power
+                                    adjusted_grid_profile[minute] += grid_support_power  # Increase available capacity
                             
-                            # Phase 2: System support period (increases available capacity)
-                            elif (time_of_day >= charge_end_minute and time_of_day < system_support_end_minute):
-                                pv_direct_support_curve[minute] = total_system_support_power
-                                adjusted_grid_profile[minute] += total_system_support_power  # Increase available capacity
-                            
-                            # Phase 3: Evening discharge period (increases available capacity)
+                            # Evening Phase: Battery discharge (unchanged)
                             elif (time_of_day >= discharge_start_minute and time_of_day < discharge_end_minute):
                                 pv_battery_discharge_curve[minute] = total_discharge_power
                                 adjusted_grid_profile[minute] += total_discharge_power  # Increase available capacity
@@ -2904,14 +2926,19 @@ with col1:
                 if pv_direct_support is not None and np.any(pv_direct_support > 0):
                     plot_pv_direct_support = pv_direct_support[:max_plot_points]
                     ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
-                                   color='lightgreen', alpha=0.4, label='PV Direct System Support')
+                                   color='lightgreen', alpha=0.4, label='PV Direct System Support (Increases Capacity)')
                 
                 # 3. Battery Charging Effects (separate PV and Grid charging)
                 if pv_charge is not None and np.any(pv_charge > 0):
-                    # PV battery charging (orange shading - above red line to show extra energy)
+                    # PV battery charging (orange shading with diagonal stripes - stacked on top of PV direct support)
                     plot_pv_charge = pv_charge[:max_plot_points]
-                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + plot_pv_charge, 
-                                   color='orange', alpha=0.4, label='PV Battery Charging (Extra Energy)')
+                    # Calculate the base level for stacking (original grid limit + PV direct support)
+                    base_level = plot_original_grid_limit
+                    if pv_direct_support is not None and np.any(pv_direct_support > 0):
+                        base_level = plot_original_grid_limit + plot_pv_direct_support
+                    
+                    ax1.fill_between(grid_time, base_level, base_level + plot_pv_charge, 
+                                   color='orange', alpha=0.4, hatch='////', label='PV Battery Charging (No grid effect)')
                 
                 if grid_charge is not None and np.any(grid_charge > 0):
                     # Grid battery charging (lightcoral shading - reduces grid capacity)
