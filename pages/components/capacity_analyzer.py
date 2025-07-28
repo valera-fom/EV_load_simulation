@@ -157,14 +157,25 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                     total_system_support_power = pv_evs * max_charge_rate  # Same as charge rate for system support
                     total_discharge_power = pv_evs * actual_discharge_rate * (solar_energy_percent / 100)
                     
-                    # Generate variable start times with normal distribution
-                    pv_sigma = pv_duration / 4  # 1σ = duration/4
-                    pv_start_times = np.random.normal(pv_start_hour, pv_sigma, pv_evs)
-                    pv_start_times = np.clip(pv_start_times, 0, 24)  # Clip to valid hours
+                    # Generate variable start times with normal distribution or strict boundaries
+                    pv_use_normal_distribution = st.session_state.optimization_strategy.get('pv_use_normal_distribution', True)
+                    pv_sigma_divisor = st.session_state.optimization_strategy.get('pv_sigma_divisor', 8)
                     
-                    discharge_sigma = discharge_duration / 4  # 1σ = duration/4
-                    discharge_start_times = np.random.normal(discharge_start_hour, discharge_sigma, pv_evs)
-                    discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                    if pv_use_normal_distribution and pv_sigma_divisor:
+                        pv_sigma = pv_duration / pv_sigma_divisor
+                        pv_start_times = np.random.normal(pv_start_hour, pv_sigma, pv_evs)
+                        pv_start_times = np.clip(pv_start_times, 0, 24)  # Clip to valid hours
+                    else:
+                        # Use strict boundaries - all EVs start at the same time
+                        pv_start_times = np.full(pv_evs, pv_start_hour)
+                    
+                    if pv_use_normal_distribution and pv_sigma_divisor:
+                        discharge_sigma = discharge_duration / pv_sigma_divisor
+                        discharge_start_times = np.random.normal(discharge_start_hour, discharge_sigma, pv_evs)
+                        discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                    else:
+                        # Use strict boundaries - all EVs start at the same time
+                        discharge_start_times = np.full(pv_evs, discharge_start_hour)
                     
                     # Calculate time periods for each EV
                     for ev_idx in range(pv_evs):
@@ -231,14 +242,25 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                     total_charge_power = grid_battery_evs * charge_rate
                     total_discharge_power = grid_battery_evs * discharge_rate
                     
-                    # Generate variable start times with normal distribution
-                    charge_sigma = grid_battery_charge_duration / 4  # 1σ = duration/4
-                    charge_start_times = np.random.normal(grid_battery_charge_start_hour, charge_sigma, grid_battery_evs)
-                    charge_start_times = np.clip(charge_start_times, 0, 24)  # Clip to valid hours
+                    # Generate variable start times with normal distribution or strict boundaries
+                    grid_use_normal_distribution = st.session_state.optimization_strategy.get('grid_use_normal_distribution', True)
+                    grid_sigma_divisor = st.session_state.optimization_strategy.get('grid_sigma_divisor', 8)
                     
-                    discharge_sigma = grid_battery_discharge_duration / 4  # 1σ = duration/4
-                    discharge_start_times = np.random.normal(grid_battery_discharge_start_hour, discharge_sigma, grid_battery_evs)
-                    discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                    if grid_use_normal_distribution and grid_sigma_divisor:
+                        charge_sigma = grid_battery_charge_duration / grid_sigma_divisor
+                        charge_start_times = np.random.normal(grid_battery_charge_start_hour, charge_sigma, grid_battery_evs)
+                        charge_start_times = np.clip(charge_start_times, 0, 24)  # Clip to valid hours
+                    else:
+                        # Use strict boundaries - all EVs start at the same time
+                        charge_start_times = np.full(grid_battery_evs, grid_battery_charge_start_hour)
+                    
+                    if grid_use_normal_distribution and grid_sigma_divisor:
+                        discharge_sigma = grid_battery_discharge_duration / grid_sigma_divisor
+                        discharge_start_times = np.random.normal(grid_battery_discharge_start_hour, discharge_sigma, grid_battery_evs)
+                        discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                    else:
+                        # Use strict boundaries - all EVs start at the same time
+                        discharge_start_times = np.full(grid_battery_evs, grid_battery_discharge_start_hour)
                     
                     # Calculate time periods for each EV
                     for ev_idx in range(grid_battery_evs):
@@ -300,10 +322,17 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                     discharge_duration_minutes = int(v2g_discharge_duration * 60)
                     discharge_end_minute = discharge_start_minute + discharge_duration_minutes
                     
-                    # Generate variable start times with normal distribution
-                    v2g_sigma = v2g_discharge_duration / 4  # 1σ = duration/4
-                    v2g_start_times = np.random.normal(v2g_discharge_start_hour, v2g_sigma, total_v2g_evs)
-                    v2g_start_times = np.clip(v2g_start_times, 0, 24)  # Clip to valid hours
+                    # Generate variable start times with normal distribution or strict boundaries
+                    v2g_use_normal_distribution = st.session_state.optimization_strategy.get('v2g_use_normal_distribution', True)
+                    v2g_sigma_divisor = st.session_state.optimization_strategy.get('v2g_sigma_divisor', 8)
+                    
+                    if v2g_use_normal_distribution and v2g_sigma_divisor:
+                        v2g_sigma = v2g_discharge_duration / v2g_sigma_divisor
+                        v2g_start_times = np.random.normal(v2g_discharge_start_hour, v2g_sigma, total_v2g_evs)
+                        v2g_start_times = np.clip(v2g_start_times, 0, 24)  # Clip to valid hours
+                    else:
+                        # Use strict boundaries - all EVs start at the same time
+                        v2g_start_times = np.full(total_v2g_evs, v2g_discharge_start_hour)
                     
                     # Calculate time periods for each EV
                     for ev_idx in range(total_v2g_evs):
