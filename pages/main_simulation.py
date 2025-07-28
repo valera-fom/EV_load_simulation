@@ -825,10 +825,10 @@ with st.sidebar:
             if 'time_of_use_timeline' not in st.session_state:
                 st.session_state.time_of_use_timeline = {
                     'periods': [
-                                    {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 0, 'hours': list(range(2, 6))},
-            {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 0, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-            {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 0, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-            {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 100, 'hours': list(range(9, 11)) + list(range(18, 21))}
+                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
+                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
                     ],
                     'selected_period': 0
                 }
@@ -884,9 +884,15 @@ with st.sidebar:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Consistent spacing and alignment
+                    # Consistent spacing and alignment with fixed height
                     st.markdown(f"""
-                    <div style="margin: 8px 0 4px 0;">
+                    <div style="
+                        margin: 8px 0 4px 0;
+                        height: 40px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    ">
                         <strong>{period['name']}:</strong>
                     </div>
                     """, unsafe_allow_html=True)
@@ -1109,6 +1115,12 @@ with st.sidebar:
                 # Clear session state assignments to restore original timeline defaults
                 st.session_state.pop('hour_assignments', None)
                 st.session_state.pop('initial_timeline', None)
+                
+                # Clear optimized TOU values from dynamic capacity optimizer
+                st.session_state.pop('optimized_tou_values', None)
+                st.session_state.pop('dynamic_optimization_completed', None)
+                st.session_state.pop('dynamic_optimization_results', None)
+                st.session_state.pop('dynamic_optimization_car_count', None)
                 
                 # Restore original timeline
                 if 'original_timeline' in st.session_state:
@@ -3251,6 +3263,19 @@ with col2:
         for peak in st.session_state.time_peaks:
             if peak['enabled']:
                 st.write(f"• **{peak['name']}:** {peak['quantity']} EVs at {peak['time']}:00 ± {peak['span']}h")
+        
+        # EV Adoption Percentage
+        if 'ev_calculator' in st.session_state:
+            ev_calc = st.session_state.ev_calculator
+            total_cars_system = ev_calc.get('total_cars', 6100000)  # Default from calculator
+            penetration_percent = ev_calc.get('penetration_percent', 20.0)
+            total_evs_system = total_cars_system * penetration_percent / 100
+            
+            if total_evs_system > 0:
+                adoption_percentage = (results['total_evs'] / total_evs_system) * 100
+                st.markdown("**📊 EV Adoption**")
+                st.write(f"• **System EVs:** {total_evs_system:,.0f} ({penetration_percent:.1f}% penetration)")
+                st.write(f"• **Simulation EVs:** {results['total_evs']:,.0f}")
         
         # Active Strategies Summary
         active_strategies = st.session_state.get('active_strategies', [])
