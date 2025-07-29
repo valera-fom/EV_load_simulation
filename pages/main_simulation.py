@@ -328,7 +328,7 @@ with st.sidebar:
                 
                 with col1:
                     new_name = st.text_input("Peak Name", value=str(peak['name']), key="peak_name_0")
-                    new_time = st.slider("Peak Time (hours)", min_value=0, max_value=23, value=int(peak['time']), key="peak_time_0")
+                    new_time = st.slider("Peak Time (hours)", min_value=0, max_value=48, value=int(peak['time']), key="peak_time_0")
                 
                 with col2:
                     # Ensure span is a float
@@ -1304,9 +1304,9 @@ with st.sidebar:
             with col2:
                 discharge_start_hour = st.slider(
                     "Discharge Start Hour",
-                    min_value=18.0,
+                    min_value=16.0,
                     max_value=26.0,
-                    value=float(st.session_state.optimization_strategy.get('discharge_start_hour', 20)),  # 8pm default
+                    value=float(st.session_state.optimization_strategy.get('discharge_start_hour', 18)),  # 8pm default
                     step=0.5,
                     help="Hour when battery discharge starts (18-26)",
                     key="pv_discharge_start_hour"
@@ -1316,7 +1316,7 @@ with st.sidebar:
                 min_discharge_duration_rounded = round(min_discharge_duration * 2) / 2
                 # Use 3.0 as default if no value in session state, otherwise use the calculated minimum
                 if 'discharge_duration' not in st.session_state.optimization_strategy:
-                    default_duration = 3.0
+                    default_duration = 6.0
                 else:
                     default_duration = st.session_state.optimization_strategy.get('discharge_duration', min_discharge_duration_rounded)
                 # Ensure default also aligns with step
@@ -1475,9 +1475,9 @@ with st.sidebar:
             with col2:
                 grid_battery_discharge_start_hour = st.slider(
                     "Discharge Start Hour",
-                    min_value=18.0,
+                    min_value=16.0,
                     max_value=26.0,
-                    value=float(st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 20)),
+                    value=float(st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18)),
                     step=0.5,
                     help="Hour when battery discharge starts (18-26)",
                     key="grid_discharge_start_hour"
@@ -1486,7 +1486,7 @@ with st.sidebar:
                     "Discharge Duration (hours)",
                     min_value=1,
                     max_value=8,
-                    value=int(st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)),
+                    value=int(st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 6)),
                     step=1,
                     help="Duration of battery discharge (hours)",
                     key="grid_discharge_duration"
@@ -2021,8 +2021,7 @@ with st.sidebar:
                                 # Set x-axis to show the actual time range
                                 ax.set_xlim(0, total_hours)
                                 
-                                # Add debug info
-                                st.write(f"**Debug Info:** {data_points} points, {interval_minutes:.1f} min intervals")
+                             
                                 
                                 st.pyplot(fig)
                                 plt.close()
@@ -2334,7 +2333,7 @@ with col1:
                 grid_profile_15min = power_values
                 grid_profile_full = np.repeat(grid_profile_15min, 15).astype(float)
                 
-                sim_duration_min = 48 * 60  # Always 48 hours for simulation
+                sim_duration_min = 72 * 60  # Run for 72 hours
                 daily_minutes = 24 * 60
                 
                 # Check if we're using synthetic data
@@ -2419,11 +2418,11 @@ with col1:
                                 period_groups[period_name] = []
                             period_groups[period_name].append(period)
                         
-                        # Calculate how many days the simulation runs (always 48 hours = 2 days)
+                        # Calculate how many days the simulation runs (48 hours = 2 days for car addition)
                         daily_minutes = 24 * 60
-                        num_days = 2  # Always 2 days for 48-hour simulation
+                        num_days = 2  # Run for 2 days to cover 48 hours (cars only added for 48 hours)
                         
-                        # Pre-calculate all arrival times for Time of Use (repeating daily)
+                        # Pre-calculate all arrival times for Time of Use (repeating daily for 48 hours only)
                         for day in range(num_days):
                             day_offset_minutes = day * daily_minutes
                             
@@ -2459,13 +2458,26 @@ with col1:
                                                     span_minutes = span_hours * 60
                                                     std_minutes = span_minutes / 4  # Standard deviation = span/4
                                                     
-                                                    # Generate arrival times for this period on this day
-                                                    period_arrival_times = np.random.normal(center_minutes, std_minutes, period_evs)
+                                                    # Calculate charging duration to shift arrival times
+                                                    ev_capacity = st.session_state.dynamic_ev.get('capacity', 75)
+                                                    ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11)
+                                                    charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                                                    charging_duration_minutes = charging_duration_hours / 2 * 60
                                                     
-                                                    # Clip to period boundaries and add day offset
-                                                    period_arrival_times = np.clip(period_arrival_times, 
-                                                                                 period['start'] * 60, 
-                                                                                 period['end'] * 60)
+                                                    # Shift center by 0.4x the charging duration (so EVs finish charging at center of period)
+                                                    shift_amount = charging_duration_minutes * 0.4
+                                                    shifted_center_minutes = center_minutes - shift_amount
+                                                    
+                                                    # Generate arrival times for this period on this day
+                                                    period_arrival_times = np.random.normal(shifted_center_minutes, std_minutes, period_evs)
+                                                    
+                                                    # Handle negative times by wrapping to 48 - |negative_time| (same as single peak)
+                                                    for i in range(len(period_arrival_times)):
+                                                        if period_arrival_times[i] < 0:
+                                                            # Wrap negative times to 48 - |negative_time|
+                                                            period_arrival_times[i] = 48 * 60 + period_arrival_times[i]
+                                                    
+                                                    # Add day offset
                                                     period_arrival_times += day_offset_minutes
                                                     
                                                     # Add to arrival times list
@@ -2477,12 +2489,29 @@ with col1:
                     peak_span = peak['span'] * 60
                     sigma = peak_span
                     
-                    peak_arrivals = np.random.normal(peak_mean, sigma, peak['quantity'])
+                    # Calculate charging duration to shift arrival times
+                    ev_capacity = st.session_state.dynamic_ev.get('capacity', 75)
+                    ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11)
+                    charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                    charging_duration_minutes = charging_duration_hours * 60
+                    
+                    # Shift peak by 0.4x the charging duration (so EVs finish charging at peak time)
+                    shift_amount = charging_duration_minutes * 0.4
+                    shifted_peak_mean = peak_mean - shift_amount
+                    
+                    peak_arrivals = np.random.normal(shifted_peak_mean, sigma, peak['quantity'])
+                    
+                    # Handle negative times by wrapping to 48 - |negative_time|
+                    for i in range(len(peak_arrivals)):
+                        if peak_arrivals[i] < 0:
+                            # Wrap negative times to 48 - |negative_time|
+                            peak_arrivals[i] = 48 * 60 + peak_arrivals[i]
+                    
                     arrival_times.extend(peak_arrivals)
                 
-                # Finalize arrival times (clip and sort once)
+                # Finalize arrival times (sort once)
                 arrival_times = np.array(arrival_times)
-                arrival_times = np.clip(arrival_times, 0, 48 * 60 - 60)  # Always 48 hours for simulation
+                arrival_times = np.clip(arrival_times, 0, 48 * 60)  # Run for 48 hours, cars can spawn up to 48 hours
                 arrival_times.sort()
                 
                 # Add V2G recharge EVs to arrival times
@@ -2759,12 +2788,11 @@ with col1:
                 else:
                     grid_power_limit = None  # No constraint for Reference Only mode
                 
-                # Always run simulation for 48 hours to avoid cars stacking at the end
-                # The UI sim_duration slider only affects graph plotting
+                # Run simulation for 60 hours
                 sim = SimulationSetup(
                     ev_counts=ev_counts,
                     charger_counts=charger_counts,
-                    sim_duration=48 * 60,  # Always 48 hours for simulation
+                    sim_duration=60 * 60,  # Run for 60 hours
                     arrival_time_mean=12 * 60,
                     arrival_time_span=4 * 60,
                     grid_power_limit=grid_power_limit,  # Pass grid constraint to simulation
@@ -2830,8 +2858,28 @@ with col1:
                     sim.evs.append(ev)
                 for i, ev in enumerate(sim.evs):
                     sim.env.process(sim._ev_arrival(ev, arrival_times[i]))
-                sim.env.run(until=48 * 60)  # Always run for 48 hours
+                sim.env.run(until=72 * 60)  # Run for 72 hours
                 constrained_load_curve = sim.load_curve.copy()
+                
+                
+                # Sum the load curve for 48-hour plotting (0-48h + 48-72h elongated and summed)
+                if len(constrained_load_curve) > 48 * 60:
+                    
+                    # Split load curve at 48 hours
+                    pre_48h_curve = constrained_load_curve[:48 * 60]
+                    post_48h_curve = constrained_load_curve[48 * 60:]
+                    
+                    
+                    
+                    # Elongate post-48h curve to match pre-48h size by filling with zeros
+                    if len(post_48h_curve) < len(pre_48h_curve):
+                        zeros_needed = len(pre_48h_curve) - len(post_48h_curve)
+                        post_48h_curve = np.concatenate([post_48h_curve, np.zeros(zeros_needed)])
+                        
+                    
+                    # Sum the two curves for final result
+                    constrained_load_curve = pre_48h_curve + post_48h_curve
+                    
                 
                 # Store the original EV-only load curve for display purposes
                 original_ev_only_load = constrained_load_curve.copy()
@@ -2938,13 +2986,16 @@ with col1:
         # Plot results with two subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), height_ratios=[2, 1])
         
-        # Define time axis - respect UI sim_duration slider for plotting
+        # Define time axis - show 24-hour periods instead of continuous hours
         sim_duration = st.session_state.get('sim_duration', 36)  # Get from UI slider
         max_plot_points = sim_duration * 60  # Convert to minutes
         
         # Limit the data to the UI slider duration for plotting
         plot_load_curve = results['load_curve'][:max_plot_points]
+        
+        # Convert to day-hour format (01-00, 01-04, 01-08, ..., 01-24, 02-04, etc.)
         time_hours = np.arange(len(plot_load_curve)) / 60
+        time_day_hour = time_hours  # Keep continuous hours for plotting
         
         # Top plot: EV Load and Grid Limits
         if results['grid_limit'] is not None:
@@ -2952,11 +3003,26 @@ with col1:
             plot_grid_limit = results['grid_limit'][:max_plot_points]
             plot_adjusted_grid_limit = results['adjusted_grid_limit_before_margin'][:max_plot_points] if 'adjusted_grid_limit_before_margin' in results else None
             plot_original_grid_limit = results['original_grid_limit'][:max_plot_points] if 'original_grid_limit' in results else None
+            
+            # Handle case where load curve is 48 hours but grid curves are 60 hours
+            # Load curve is already processed to 48 hours in sim_setup.py
+            # Grid curves remain at 60 hours, so we need to trim them to match load curve
+            if len(plot_load_curve) < len(plot_grid_limit):
+                # Load curve is shorter (48 hours), trim grid curves to match
+                plot_grid_limit = plot_grid_limit[:len(plot_load_curve)]
+                if plot_adjusted_grid_limit is not None:
+                    plot_adjusted_grid_limit = plot_adjusted_grid_limit[:len(plot_load_curve)]
+                if plot_original_grid_limit is not None:
+                    plot_original_grid_limit = plot_original_grid_limit[:len(plot_load_curve)]
+            
             grid_time = np.arange(len(plot_grid_limit)) / 60
+            grid_time_day_hour = grid_time  # Keep continuous hours for plotting
+            time_hours = np.arange(len(plot_load_curve)) / 60
+            time_day_hour = time_hours  # Keep continuous hours for plotting
             
             # 1. Grid Limit (red dashed line)
             if 'adjusted_grid_limit_before_margin' in results:
-                ax1.step(grid_time, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
+                ax1.step(grid_time_day_hour, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
             
             # 2. Battery Effects (charging and discharging)
             if show_battery_effects:
@@ -2972,7 +3038,7 @@ with col1:
                 # PV direct system support (lightgreen shading - PV discharge during the day)
                 if pv_direct_support is not None and np.any(pv_direct_support > 0):
                     plot_pv_direct_support = pv_direct_support[:max_plot_points]
-                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
+                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
                                    color='lightgreen', alpha=0.4, label='PV Direct System Support (Increases Capacity)')
                 
                 # 3. Battery Charging Effects (separate PV and Grid charging)
@@ -2984,13 +3050,13 @@ with col1:
                     if pv_direct_support is not None and np.any(pv_direct_support > 0):
                         base_level = plot_original_grid_limit + plot_pv_direct_support
                     
-                    ax1.fill_between(grid_time, base_level, base_level + plot_pv_charge, 
+                    ax1.fill_between(grid_time_day_hour, base_level, base_level + plot_pv_charge, 
                                    color='orange', alpha=0.4, hatch='////', label='PV Battery Charging (No grid effect)')
                 
                 if grid_charge is not None and np.any(grid_charge > 0):
                     # Grid battery charging (lightcoral shading - reduces grid capacity)
                     plot_grid_charge = grid_charge[:max_plot_points]
-                    ax1.fill_between(grid_time, plot_original_grid_limit - plot_grid_charge, plot_original_grid_limit, 
+                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit - plot_grid_charge, plot_original_grid_limit, 
                                    color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
                 
                 # Combine all battery discharging effects (PV battery + grid battery + V2G discharge)
@@ -3008,15 +3074,15 @@ with col1:
                         combined_battery_discharge += plot_v2g_discharge
                     
                     # Plot combined battery discharging effects (light blue color for battery discharge during peak)
-                    ax1.fill_between(grid_time, plot_original_grid_limit, plot_original_grid_limit + combined_battery_discharge, 
+                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + combined_battery_discharge, 
                                    color='#87CEEB', alpha=0.4, label='Battery Discharge Effects (Combined)')
             
             # 4. Grid Limit with margin (orange dashed line)
             safety_percentage = st.session_state.get('available_load_fraction', 0.8) * 100
-            ax1.step(grid_time, plot_grid_limit, where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
+            ax1.step(grid_time_day_hour, plot_grid_limit, where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
         
         # 5. EV Load (blue line)
-        ax1.plot(time_hours, plot_load_curve, 'b-', linewidth=2, label='EV Load')
+        ax1.plot(time_day_hour, plot_load_curve, 'b-', linewidth=2, label='EV Load')
         
         # Ensure y-axis shows both lines
         if results['grid_limit'] is not None:
@@ -3027,11 +3093,38 @@ with col1:
         if show_legend:
             ax1.legend(loc='lower left', fontsize=12, frameon=True)
         
-        ax1.set_xlabel('Time (hours)')
+        ax1.set_xlabel('Time (Day-Hour)')
         ax1.set_ylabel('Power (kW)')
         mode_text = "Grid Constrained" if results['grid_mode'] == "Grid Constrained" else "Reference Only"
         ax1.set_title(f'EV Charging Load vs Grid Capacity ({mode_text})')
         ax1.grid(True, alpha=0.3)
+        
+        # Create custom x-axis labels in day-hour format
+        max_hours = int(np.ceil(time_day_hour[-1])) if len(time_day_hour) > 0 else 48
+        x_ticks = []
+        x_labels = []
+        
+        for hour in range(0, max_hours + 1, 4):  # Every 4 hours
+            if hour == 0:
+                # Special case: 00--00 for hour 0
+                day = 0
+                hour_in_day = 0
+                x_labels.append(f"{day:02d}--{hour_in_day:02d}")
+            else:
+                day = (hour // 24) + 1
+                hour_in_day = hour % 24
+                if hour_in_day == 0:
+                    # Show 01--24 instead of 02--00
+                    day = day - 1
+                    hour_in_day = 24
+                x_labels.append(f"{day:02d}--{hour_in_day:02d}")
+            x_ticks.append(hour)
+        
+        ax1.set_xticks(x_ticks)
+        ax1.set_xticklabels(x_labels, rotation=0, fontsize=12, ha='center')
+        
+        # Set x-axis limits to show the full range
+        ax1.set_xlim(0, max_hours)
         
         # Bottom plot: Available Grid Capacity
         if results['grid_limit'] is not None:
@@ -3045,13 +3138,13 @@ with col1:
             available_capacity_before_margin = np.maximum(available_capacity_before_margin, 0)  # Ensure non-negative
             
             # Plot available capacity up to adjusted limit before 80% margin (with battery effects)
-            ax2.fill_between(grid_time, 0, available_capacity_before_margin, color='lightgreen', alpha=0.7, label='Available Grid Capacity')
-            ax2.plot(grid_time, available_capacity_before_margin, 'g-', linewidth=2, label='_nolegend_')
+            ax2.fill_between(grid_time_day_hour, 0, available_capacity_before_margin, color='lightgreen', alpha=0.7, label='Available Grid Capacity')
+            ax2.plot(grid_time_day_hour, available_capacity_before_margin, 'g-', linewidth=2, label='_nolegend_')
             
             # Add red dashed line to show the 20% margin that shouldn't be used
             if show_safety_margin:
                 margin_capacity = plot_adjusted_grid_limit - plot_grid_limit
-                ax2.plot(grid_time, margin_capacity, 'r--', linewidth=2, alpha=0.8, label='20% Safety Margin')
+                ax2.plot(grid_time_day_hour, margin_capacity, 'r--', linewidth=2, alpha=0.8, label='20% Safety Margin')
             
             # Add average line if requested
             if show_average_line and np.any(available_capacity_before_margin > 0):
@@ -3068,10 +3161,17 @@ with col1:
             if show_legend:
                 ax2.legend(loc='upper right', fontsize=12, frameon=True)
         
-        ax2.set_xlabel('Time (hours)')
+        ax2.set_xlabel('Time (Day-Hour)')
         ax2.set_ylabel('Available Capacity (kW)')
         ax2.set_title('Available Grid Capacity')
         ax2.grid(True, alpha=0.3)
+        
+        # Use the same x-axis format for bottom plot
+        ax2.set_xticks(x_ticks)
+        ax2.set_xticklabels(x_labels, rotation=0, fontsize=12, ha='center')
+        
+        # Set x-axis limits to show the full range
+        ax2.set_xlim(0, max_hours)
         
         # Adjust layout
         plt.tight_layout()

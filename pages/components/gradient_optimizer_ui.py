@@ -203,18 +203,212 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
         st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
         raise ValueError("No valid dataset available")
     
-
-    
-    # Calculate margin curve
+    # Calculate margin curve with battery effects
     try:
         power_values = np.array(power_values, dtype=float)
-        margin_curve = np.repeat(power_values, 15).astype(float) * available_load_fraction
+        
+        # Upsample 15-minute data to 1-minute intervals (EXACTLY like main simulation)
+        grid_profile_full = np.repeat(power_values, 15).astype(float)
+        
+        # Apply battery effects to grid profile (EXACTLY like main simulation)
+        adjusted_grid_profile = grid_profile_full.copy()
+        
+        # Apply PV + Battery optimization if enabled (charging during day, discharging during evening)
+        pv_battery_support_adjusted = np.zeros_like(grid_profile_full)
+        pv_battery_charge_curve = np.zeros_like(grid_profile_full)
+        pv_direct_support_curve = np.zeros_like(grid_profile_full)
+        pv_battery_discharge_curve = np.zeros_like(grid_profile_full)
+        if 'pv_battery' in active_strategies:
+            pv_adoption_percent = st.session_state.optimization_strategy.get('pv_adoption_percent', 0)
+            battery_capacity = st.session_state.optimization_strategy.get('battery_capacity', 0)
+            max_charge_rate = st.session_state.optimization_strategy.get('max_charge_rate', 0)
+            max_discharge_rate = st.session_state.optimization_strategy.get('max_discharge_rate', 0)
+            solar_energy_percent = st.session_state.optimization_strategy.get('solar_energy_percent', 70)
+            pv_start_hour = st.session_state.optimization_strategy.get('pv_start_hour', 8)
+            pv_duration = st.session_state.optimization_strategy.get('pv_duration', 8)
+            charge_time = st.session_state.optimization_strategy.get('charge_time', battery_capacity / max_charge_rate)
+            system_support_time = st.session_state.optimization_strategy.get('system_support_time', pv_duration - charge_time)
+            discharge_start_hour = st.session_state.optimization_strategy.get('discharge_start_hour', 20)
+            discharge_duration = st.session_state.optimization_strategy.get('discharge_duration', battery_capacity / max_discharge_rate)
+            actual_discharge_rate = st.session_state.optimization_strategy.get('actual_discharge_rate', max_discharge_rate)
+            
+            if pv_adoption_percent > 0 and battery_capacity > 0 and max_charge_rate > 0 and actual_discharge_rate > 0:
+                # Use a reasonable number of EVs for battery calculation (not too many, not too few)
+                total_evs_for_pv = 100  # Use 100 EVs for battery calculation
+                pv_evs = int(total_evs_for_pv * pv_adoption_percent / 100)
+                total_charge_power = pv_evs * max_charge_rate
+                total_system_support_power = pv_evs * max_charge_rate  # Same as charge rate for system support
+                total_discharge_power = pv_evs * actual_discharge_rate * (solar_energy_percent / 100)
+                
+                # Generate variable start times with normal distribution or strict boundaries
+                pv_use_normal_distribution = st.session_state.optimization_strategy.get('pv_use_normal_distribution', True)
+                pv_sigma_divisor = st.session_state.optimization_strategy.get('pv_sigma_divisor', 8)
+                
+                if pv_use_normal_distribution and pv_sigma_divisor:
+                    pv_sigma = pv_duration / pv_sigma_divisor
+                    pv_start_times = np.random.normal(pv_start_hour, pv_sigma, pv_evs)
+                    pv_start_times = np.clip(pv_start_times, 0, 24)  # Clip to valid hours
+                else:
+                    # Use strict boundaries - all EVs start at the same time
+                    pv_start_times = np.full(pv_evs, pv_start_hour)
+                
+                if pv_use_normal_distribution and pv_sigma_divisor:
+                    discharge_sigma = discharge_duration / pv_sigma_divisor
+                    discharge_start_times = np.random.normal(discharge_start_hour, discharge_sigma, pv_evs)
+                    discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                else:
+                    # Use strict boundaries - all EVs start at the same time
+                    discharge_start_times = np.full(pv_evs, discharge_start_hour)
+                
+                # Calculate time periods for each EV
+                for ev_idx in range(pv_evs):
+                    # Get individual start times
+                    ev_pv_start = pv_start_times[ev_idx]
+                    ev_discharge_start = discharge_start_times[ev_idx]
+                    
+                    # Convert to minutes
+                    ev_pv_start_minute = int(ev_pv_start * 60)
+                    ev_system_support_end_minute = ev_pv_start_minute + int(pv_duration * 60)
+                    ev_discharge_start_minute = int(ev_discharge_start * 60)
+                    ev_discharge_duration_minutes = int(discharge_duration * 60)
+                    ev_discharge_end_minute = ev_discharge_start_minute + ev_discharge_duration_minutes
+                    
+                    # Calculate required charging rate for this EV
+                    ev_battery_capacity = battery_capacity
+                    ev_charging_time_hours = pv_duration
+                    ev_required_charging_rate = ev_battery_capacity / ev_charging_time_hours
+                    
+                    for minute in range(len(grid_profile_full)):
+                        time_of_day = minute % (24 * 60)
+                        
+                        # Day Phase: Simultaneous battery charging and grid support for this EV
+                        if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
+                            # Calculate total PV power available for this EV
+                            ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                            
+                            # Calculate remaining power for grid support
+                            ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
+                            
+                            # Apply battery charging (no grid effect - PV charges batteries directly)
+                            pv_battery_charge_curve[minute] += ev_required_charging_rate
+                            
+                            # Apply grid support (increases available capacity)
+                            if ev_grid_support_power > 0:
+                                pv_direct_support_curve[minute] += ev_grid_support_power
+                                adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                        
+                        # Evening Phase: Battery discharge for this EV
+                        elif (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                            ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
+                            pv_battery_discharge_curve[minute] += ev_discharge_power
+                            adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+        
+        # Apply Grid-Charged Batteries optimization if enabled
+        grid_battery_charge_curve = np.zeros_like(grid_profile_full)
+        grid_battery_discharge_curve = np.zeros_like(grid_profile_full)
+        if 'grid_battery' in active_strategies:
+            grid_battery_adoption_percent = st.session_state.optimization_strategy.get('grid_battery_adoption_percent', 0)
+            grid_battery_capacity = st.session_state.optimization_strategy.get('grid_battery_capacity', 0)
+            grid_battery_max_rate = st.session_state.optimization_strategy.get('grid_battery_max_rate', 0)
+            grid_battery_charge_start_hour = st.session_state.optimization_strategy.get('grid_battery_charge_start_hour', 7)
+            grid_battery_charge_duration = st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8)
+            grid_battery_discharge_start_hour = st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 20)
+            grid_battery_discharge_duration = st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)
+            
+            if grid_battery_adoption_percent > 0 and grid_battery_capacity > 0 and grid_battery_max_rate > 0:
+                # Use a reasonable number of EVs for battery calculation
+                total_evs_for_grid_battery = 100  # Use 100 EVs for battery calculation
+                grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
+                
+                # Generate variable start times
+                grid_battery_use_normal_distribution = st.session_state.optimization_strategy.get('grid_battery_use_normal_distribution', True)
+                grid_battery_sigma_divisor = st.session_state.optimization_strategy.get('grid_battery_sigma_divisor', 8)
+                
+                if grid_battery_use_normal_distribution and grid_battery_sigma_divisor:
+                    charge_sigma = grid_battery_charge_duration / grid_battery_sigma_divisor
+                    discharge_sigma = grid_battery_discharge_duration / grid_battery_sigma_divisor
+                    charge_start_times = np.random.normal(grid_battery_charge_start_hour, charge_sigma, grid_battery_evs)
+                    discharge_start_times = np.random.normal(grid_battery_discharge_start_hour, discharge_sigma, grid_battery_evs)
+                    charge_start_times = np.clip(charge_start_times, 0, 24)
+                    discharge_start_times = np.clip(discharge_start_times, 0, 24)
+                else:
+                    charge_start_times = np.full(grid_battery_evs, grid_battery_charge_start_hour)
+                    discharge_start_times = np.full(grid_battery_evs, grid_battery_discharge_start_hour)
+                
+                # Calculate time periods for each EV
+                for ev_idx in range(grid_battery_evs):
+                    ev_charge_start = charge_start_times[ev_idx]
+                    ev_discharge_start = discharge_start_times[ev_idx]
+                    
+                    # Convert to minutes
+                    ev_charge_start_minute = int(ev_charge_start * 60)
+                    ev_charge_end_minute = ev_charge_start_minute + int(grid_battery_charge_duration * 60)
+                    ev_discharge_start_minute = int(ev_discharge_start * 60)
+                    ev_discharge_end_minute = ev_discharge_start_minute + int(grid_battery_discharge_duration * 60)
+                    
+                    for minute in range(len(grid_profile_full)):
+                        time_of_day = minute % (24 * 60)
+                        
+                        # Charging phase (reduces available capacity)
+                        if (time_of_day >= ev_charge_start_minute and time_of_day < ev_charge_end_minute):
+                            ev_charge_power = grid_battery_max_rate
+                            grid_battery_charge_curve[minute] += ev_charge_power
+                            adjusted_grid_profile[minute] -= ev_charge_power  # Decrease available capacity
+                        
+                        # Discharging phase (increases available capacity)
+                        elif (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                            ev_discharge_power = grid_battery_max_rate
+                            grid_battery_discharge_curve[minute] += ev_discharge_power
+                            adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+        
+        # Apply V2G optimization if enabled
+        v2g_discharge_curve = np.zeros_like(grid_profile_full)
+        if 'v2g' in active_strategies:
+            v2g_adoption_percent = st.session_state.optimization_strategy.get('v2g_adoption_percent', 0)
+            v2g_max_discharge_rate = st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0)
+            v2g_discharge_start_hour = st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20)
+            v2g_discharge_duration = st.session_state.optimization_strategy.get('v2g_discharge_duration', 3)
+            
+            if v2g_adoption_percent > 0 and v2g_max_discharge_rate > 0:
+                # Use a reasonable number of EVs for V2G calculation
+                total_evs_for_v2g = 100  # Use 100 EVs for V2G calculation
+                v2g_evs = int(total_evs_for_v2g * v2g_adoption_percent / 100)
+                
+                # Generate variable start times
+                v2g_use_normal_distribution = st.session_state.optimization_strategy.get('v2g_use_normal_distribution', True)
+                v2g_sigma_divisor = st.session_state.optimization_strategy.get('v2g_sigma_divisor', 8)
+                
+                if v2g_use_normal_distribution and v2g_sigma_divisor:
+                    discharge_sigma = v2g_discharge_duration / v2g_sigma_divisor
+                    discharge_start_times = np.random.normal(v2g_discharge_start_hour, discharge_sigma, v2g_evs)
+                    discharge_start_times = np.clip(discharge_start_times, 0, 24)
+                else:
+                    discharge_start_times = np.full(v2g_evs, v2g_discharge_start_hour)
+                
+                # Calculate time periods for each EV
+                for ev_idx in range(v2g_evs):
+                    ev_discharge_start = discharge_start_times[ev_idx]
+                    
+                    # Convert to minutes
+                    ev_discharge_start_minute = int(ev_discharge_start * 60)
+                    ev_discharge_end_minute = ev_discharge_start_minute + int(v2g_discharge_duration * 60)
+                    
+                    for minute in range(len(grid_profile_full)):
+                        time_of_day = minute % (24 * 60)
+                        
+                        # Discharging phase (increases available capacity)
+                        if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                            ev_discharge_power = v2g_max_discharge_rate
+                            v2g_discharge_curve[minute] += ev_discharge_power
+                            adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+        
+        # Apply margin to the adjusted grid profile
+        margin_curve = adjusted_grid_profile * available_load_fraction
+        
     except Exception as e:
-        print(f"Error converting power_values: {e}")
-        print(f"power_values: {power_values}")
         raise ValueError(f"Invalid power_values data: {e}")
     
-    # Extend to 48 hours if needed
+    # Extend to 48 hours if needed (cars only added for 48 hours)
     sim_duration_min = 48 * 60
     if len(margin_curve) < sim_duration_min:
         num_repeats = sim_duration_min // len(margin_curve) + 1
@@ -359,15 +553,75 @@ def aggregate_by_tou_periods(active_cars_per_step, tou_periods, step_duration):
 def display_optimization_results(results, time_step, max_iterations):
     """Display the optimization results."""
     
-    # Calculate percentages
+    # Step 1: Calculate average cars per period from active_cars_per_step
+    tou_periods = st.session_state.optimization_strategy.get('time_of_use_periods', [])
+    period_averages = {}
+    
+    if tou_periods:
+        # Get active cars per step (orange graph data)
+        active_cars_per_step = np.array(results['active_cars_per_step'])
+        
+        # Calculate step duration in hours
+        step_duration_hours = time_step / 60.0
+        
+        # Group periods by name to avoid duplicates
+        unique_periods = {}
+        for period in tou_periods:
+            period_name = period['name']
+            if period_name not in unique_periods:
+                unique_periods[period_name] = period
+        
+        # Calculate averages for each unique period
+        for period_name, period in unique_periods.items():
+            period_start = period['start']
+            period_end = period['end']
+            
+            # Convert period hours to step indices
+            start_step = int(period_start / step_duration_hours)
+            end_step = int(period_end / step_duration_hours)
+            
+            # Get active cars for this period (handle 24-hour wrap-around)
+            period_cars = []
+            for day in range(2):  # 48 hours = 2 days
+                day_start = start_step + (day * 24 * 60 // time_step)
+                day_end = end_step + (day * 24 * 60 // time_step)
+                
+                # Ensure indices are within bounds
+                day_start = max(0, min(day_start, len(active_cars_per_step) - 1))
+                day_end = max(0, min(day_end, len(active_cars_per_step)))
+                
+                if day_start < day_end:
+                    period_cars.extend(active_cars_per_step[day_start:day_end])
+            
+            # Calculate average for this period
+            if period_cars:
+                period_averages[period_name] = np.mean(period_cars)
+            else:
+                period_averages[period_name] = 0
+    
+    # Step 2: Calculate percentages (original method) and show final normalized percentages
     period_data = []
     total_points = sum(results['period_results'].values())
     
-    for period_name, points in results['period_results'].items():
-        percentage = (points / total_points * 100) if total_points > 0 else 0
+    # Group periods by name to get unique periods for display
+    unique_periods = {}
+    for period in tou_periods:
+        period_name = period['name']
+        if period_name not in unique_periods:
+            unique_periods[period_name] = period
+    
+    for period_name, period in unique_periods.items():
+        original_percentage = (results['period_results'][period_name] / total_points * 100) if total_points > 0 else 0
+        avg_cars = period_averages.get(period_name, 0)
+        
+        # Get the final normalized percentage (already calculated and applied above)
+        final_percentage = period.get('adoption', original_percentage)
+        
         period_data.append({
             'Period': period_name,
-            'Percentage': f"{percentage:.1f}%"
+            'Original %': f"{original_percentage:.1f}%",
+            'Avg Cars': f"{avg_cars:.1f}",
+            'Final %': f"{final_percentage:.1f}%"
         })
     
     # Add total cars row
@@ -376,27 +630,65 @@ def display_optimization_results(results, time_step, max_iterations):
     total_cars_24h = total_cars // 2
     period_data.append({
         'Period': 'Total Cars',
-        'Percentage': f"{total_cars_24h}"
+        'Original %': f"{total_cars_24h}",
+        'Avg Cars': '-',
+        'Final %': '-'
     })
     
     # Create DataFrame and display
     df = pd.DataFrame(period_data)
+    st.write("**📊 Dynamic Optimization Results Table:**")
+    st.write("*Original %: Initial optimization percentages | Avg Cars: Average active cars per period | Final %: Normalized percentages after multiplying by average cars*")
     st.dataframe(df, use_container_width=True)
+    
+    # Step 3: Apply new logic - multiply percentages by average cars and normalize
+    if tou_periods and period_averages:
+        # Calculate weighted percentages (only for unique periods)
+        weighted_percentages = {}
+        total_weighted = 0
+        
+        # Group periods by name to avoid duplicates
+        unique_periods = {}
+        for period in tou_periods:
+            period_name = period['name']
+            if period_name not in unique_periods:
+                unique_periods[period_name] = period
+        
+        for period_name, period in unique_periods.items():
+            if period_name in results['period_results']:
+                original_percentage = (results['period_results'][period_name] / total_points * 100) if total_points > 0 else 0
+                avg_cars = period_averages.get(period_name, 0)
+                
+                # Multiply percentage by average cars
+                weighted_percentage = original_percentage * avg_cars
+                weighted_percentages[period_name] = weighted_percentage
+                total_weighted += weighted_percentage
+        
+        # Normalize to sum to 100%
+        if total_weighted > 0:
+            # Update all periods with the same name
+            for period in tou_periods:
+                period_name = period['name']
+                if period_name in weighted_percentages:
+                    # Normalize: weighted_percentage / total_weighted * 100
+                    normalized_percentage = (weighted_percentages[period_name] / total_weighted) * 100
+                    period['adoption'] = round(normalized_percentage, 1)
+        else:
+            # Fallback to original calculation if no weighted data
+            for period in tou_periods:
+                period_name = period['name']
+                if period_name in results['period_results']:
+                    points = results['period_results'][period_name]
+                    percentage = (points / total_points * 100) if total_points > 0 else 0
+                    period['adoption'] = round(percentage, 1)
     
     # Display current optimization results if just completed
     if st.session_state.get('dynamic_optimization_just_completed', False):
         st.session_state.dynamic_optimization_just_completed = False
     
     # Now apply the optimization results
-    # Update TOU periods with optimized percentages
+    # Update TOU periods with optimized percentages (already done above)
     tou_periods = st.session_state.optimization_strategy.get('time_of_use_periods', [])
-    
-    for period in tou_periods:
-        period_name = period['name']
-        if period_name in results['period_results']:
-            points = results['period_results'][period_name]
-            percentage = (points / total_points * 100) if total_points > 0 else 0
-            period['adoption'] = round(percentage, 1)
     
     # Update the TOU periods in session state
     st.session_state.optimization_strategy['time_of_use_periods'] = tou_periods

@@ -65,9 +65,9 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
             grid_profile_15min = power_values
             margin_curve = np.repeat(grid_profile_15min, 15).astype(float) * capacity_margin
             
-            # Extend grid profile for 48-hour simulation (EXACTLY like main simulation)
+            # Extend grid profile for 60-hour simulation (EXACTLY like main simulation)
             daily_minutes = 24 * 60
-            sim_duration_min = 48 * 60  # Always 48 hours for simulation
+            sim_duration_min = 60 * 60  # Run for 60 hours
             
             # Check if we're using synthetic data
             using_synthetic_data = ('synthetic_load_curve' in st.session_state and 
@@ -390,9 +390,9 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                             period_groups[period_name] = []
                         period_groups[period_name].append(period)
                     
-                    # Calculate how many days the simulation runs (always 48 hours = 2 days)
+                    # Calculate how many days the simulation runs (60 hours = 2.5 days)
                     daily_minutes = 24 * 60
-                    num_days = 2  # Always 2 days for 48-hour simulation
+                    num_days = 3  # Run for 3 days to cover 60 hours
                     
                     # Pre-calculate all arrival times for Time of Use (repeating daily)
                     for day in range(num_days):
@@ -430,13 +430,26 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                                                 span_minutes = span_hours * 60
                                                 std_minutes = span_minutes / 4  # Standard deviation = span/4
                                                 
-                                                # Generate arrival times for this period on this day
-                                                period_arrival_times = np.random.normal(center_minutes, std_minutes, period_evs)
+                                                # Calculate charging duration to shift arrival times
+                                                ev_capacity = ev_config['capacity']
+                                                ev_charging_rate = ev_config['AC']
+                                                charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                                                charging_duration_minutes = charging_duration_hours * 60
                                                 
-                                                # Clip to period boundaries and add day offset
-                                                period_arrival_times = np.clip(period_arrival_times, 
-                                                                             period['start'] * 60, 
-                                                                             period['end'] * 60)
+                                                # Shift center by 0.4x the charging duration (so EVs finish charging at center of period)
+                                                shift_amount = charging_duration_minutes * 0.4
+                                                shifted_center_minutes = center_minutes - shift_amount
+                                                
+                                                # Generate arrival times for this period on this day
+                                                period_arrival_times = np.random.normal(shifted_center_minutes, std_minutes, period_evs)
+                                                
+                                                # Handle negative times by wrapping to 60 - |negative_time|
+                                                for i in range(len(period_arrival_times)):
+                                                    if period_arrival_times[i] < 0:
+                                                        # Wrap negative times to 60 - |negative_time|
+                                                        period_arrival_times[i] = 60 * 60 + period_arrival_times[i]
+                                                
+                                                # Add day offset
                                                 period_arrival_times += day_offset_minutes
                                                 
                                                 # Add to arrival times list
@@ -449,16 +462,50 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                     peak_span = peak['span'] * 60  # Convert hours to minutes
                     sigma = peak_span
                     
-                    peak_arrivals = np.random.normal(peak_mean, sigma, current_cars)
+                    # Calculate charging duration to shift arrival times
+                    ev_capacity = ev_config['capacity']
+                    ev_charging_rate = ev_config['AC']
+                    charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                    charging_duration_minutes = charging_duration_hours * 60
+                    
+                    # Shift peak by 0.4x the charging duration (so EVs finish charging at peak time)
+                    shift_amount = charging_duration_minutes * 0.4
+                    shifted_peak_mean = peak_mean - shift_amount
+                    
+                    peak_arrivals = np.random.normal(shifted_peak_mean, sigma, current_cars)
+                    
+                    # Handle negative times by wrapping to 60 - |negative_time|
+                    for i in range(len(peak_arrivals)):
+                        if peak_arrivals[i] < 0:
+                            # Wrap negative times to 60 - |negative_time|
+                            peak_arrivals[i] = 60 * 60 + peak_arrivals[i]
+                    
                     arrival_times.extend(peak_arrivals)
                 else:
                     # Fallback to default values
-                    peak_arrivals = np.random.normal(12 * 60, 4 * 60, current_cars)
+                    # Calculate charging duration to shift arrival times
+                    ev_capacity = ev_config['capacity']
+                    ev_charging_rate = ev_config['AC']
+                    charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                    charging_duration_minutes = charging_duration_hours * 60
+                    
+                    # Shift default peak by 0.4x the charging duration
+                    shift_amount = charging_duration_minutes * 0.4
+                    shifted_default_mean = 12 * 60 - shift_amount
+                    
+                    peak_arrivals = np.random.normal(shifted_default_mean, 4 * 60, current_cars)
+                    
+                    # Handle negative times by wrapping to 60 - |negative_time|
+                    for i in range(len(peak_arrivals)):
+                        if peak_arrivals[i] < 0:
+                            # Wrap negative times to 60 - |negative_time|
+                            peak_arrivals[i] = 60 * 60 + peak_arrivals[i]
+                    
                     arrival_times.extend(peak_arrivals)
             
             # Finalize arrival times (same as main simulation)
             arrival_times = np.array(arrival_times)
-            arrival_times = np.clip(arrival_times, 0, 48 * 60 - 60)  # Always 48 hours for simulation
+            arrival_times = np.clip(arrival_times, 0, 60 * 60 - 60)  # Run for 60 hours, no cars spawn after 59 hours
             arrival_times.sort()
             
             # Add V2G recharge EVs to arrival times (same as main simulation)
@@ -494,12 +541,11 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
                     arrival_times = np.concatenate([arrival_times, v2g_arrival_times])
                     arrival_times.sort()
             
-            # Always run simulation for 48 hours to avoid cars stacking at the end
-            # The UI sim_duration slider only affects graph plotting
+            # Run simulation for 60 hours
             sim = SimulationSetup(
                 ev_counts=ev_counts,
                 charger_counts=charger_counts,
-                sim_duration=48 * 60,  # Always 48 hours for simulation
+                sim_duration=60 * 60,  # Run for 60 hours
                 arrival_time_mean=12 * 60,  # Not used since we manually schedule
                 arrival_time_span=4 * 60,   # Not used since we manually schedule
                 grid_power_limit=grid_power_limit,
@@ -566,7 +612,7 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
             for i, ev in enumerate(sim.evs):
                 sim.env.process(sim._ev_arrival(ev, arrival_times[i]))
             
-            sim.env.run(until=48 * 60)  # Always run for 48 hours
+            sim.env.run(until=60 * 60)  # Run for 60 hours
             
             # Process results
             load_curve = sim.load_curve
