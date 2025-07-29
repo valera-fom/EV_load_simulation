@@ -36,6 +36,222 @@ def _is_light_color(hex_color):
     
     return luminance > 0.5
 
+def create_optimal_tou_periods(margin_curve):
+    """
+    Create optimal TOU periods based on capacity levels in the margin curve.
+    
+    Args:
+        margin_curve: List of capacity values over time (48 hours = 2880 minutes with 1-minute steps)
+    
+    Returns:
+        Dictionary with optimal TOU timeline structure
+    """
+    # Convert margin curve to hourly values (1-minute steps)
+    time_step_minutes = 1  # The margin curve has 1-minute steps
+    hours_in_simulation = len(margin_curve) * time_step_minutes // 60
+    
+    # Calculate hourly average capacity
+    hourly_capacity = []
+    for hour in range(hours_in_simulation):
+        start_idx = hour * 60  # 60 steps per hour (1-minute steps)
+        end_idx = min(start_idx + 60, len(margin_curve))
+        hour_avg = np.mean(margin_curve[start_idx:end_idx])
+        hourly_capacity.append(hour_avg)
+    
+    # Find capacity range
+    min_capacity = min(hourly_capacity)
+    max_capacity = max(hourly_capacity)
+    capacity_range = max_capacity - min_capacity
+    
+    # Create 4 equal capacity buckets
+    bucket_size = capacity_range / 4
+    capacity_thresholds = [
+        min_capacity + bucket_size,
+        min_capacity + 2 * bucket_size,
+        min_capacity + 3 * bucket_size,
+        max_capacity
+    ]
+    
+    # Assign each hour to a capacity bucket (limit to 48 hours to prevent third day spawning)
+    period_assignments = []
+    for hour in range(min(48, hours_in_simulation)):  # Limit to 48 hours maximum
+        capacity = hourly_capacity[hour]
+        if capacity <= capacity_thresholds[0]:
+            period_assignments.append(3)  # Peak (lowest capacity - red)
+        elif capacity <= capacity_thresholds[1]:
+            period_assignments.append(2)  # Mid-Peak (medium-low capacity - yellow)
+        elif capacity <= capacity_thresholds[2]:
+            period_assignments.append(1)  # Off-Peak (medium-high capacity - green)
+        else:
+            period_assignments.append(0)  # Super Off-Peak (highest capacity - blue)
+    
+    # Group consecutive hours into periods
+    # Align period names and colors with capacity assignments:
+    # 0 = Super Off-Peak (highest capacity - blue)
+    # 1 = Off-Peak (medium-high capacity - green) 
+    # 2 = Mid-Peak (medium-low capacity - yellow)
+    # 3 = Peak (lowest capacity - red)
+    period_names = ['Super Off-Peak', 'Off-Peak', 'Mid-Peak', 'Peak']
+    period_colors = ['#87CEEB', '#90EE90', '#FFD700', '#FF6B6B']
+    
+    # Initialize periods with empty hour lists
+    periods = []
+    for i, (name, color) in enumerate(zip(period_names, period_colors)):
+        hours = []
+        for hour, period_idx in enumerate(period_assignments):
+            if period_idx == i:
+                hours.append(hour + 1)  # Convert to 1-24 format
+        periods.append({
+            'name': name,
+            'color': color,
+            'adoption': 25,  # Default equal distribution
+            'hours': hours
+        })
+    
+    # Create and save visualization to session state (don't display immediately)
+    create_optimal_tou_visualization_save_only(margin_curve, hourly_capacity, period_assignments, period_names, period_colors, capacity_thresholds)
+    
+    return {
+        'periods': periods,
+        'selected_period': 0
+    }
+
+def create_optimal_tou_visualization_save_only(margin_curve, hourly_capacity, period_assignments, period_names, period_colors, capacity_thresholds):
+    """
+    Create a visualization showing the margin curve with horizontal color stripes for optimal TOU periods.
+    Only saves to session state, doesn't display immediately.
+    """
+    # Create the plot with full width (single plot, no subplots)
+    fig, ax = plt.subplots(1, 1, figsize=(16, 8))
+    
+    # Plot with 15-minute steps (first 24 hours = 96 steps)
+    time_step_minutes = 15
+    steps_per_hour = 60 // time_step_minutes  # 4 steps per hour
+    total_steps_24h = 24 * steps_per_hour  # 96 steps for 24 hours
+    
+    # Get margin curve data for first 24 hours (2880 minutes = 48 hours, take first 24 hours)
+    margin_curve_24h = margin_curve[:24*60]  # First 24 hours (1440 minutes)
+    
+    # Sample every 15 minutes (every 15th point since margin_curve has 1-minute steps)
+    margin_curve_15min = margin_curve_24h[::15]  # Take every 15th point
+    
+    # Create time axis for 15-minute steps
+    time_15min = np.arange(len(margin_curve_15min)) * time_step_minutes / 60  # Convert to hours
+    
+    ax.plot(time_15min, margin_curve_15min, 'b-', linewidth=4)
+    
+    # Add horizontal lines for capacity thresholds
+    for i, threshold in enumerate(capacity_thresholds):
+        ax.axhline(y=threshold, color='gray', linestyle='--', alpha=0.7, linewidth=2)
+    
+    # Color the background based on period assignments (map hourly periods to 15-min steps)
+    for hour, period_idx in enumerate(period_assignments[:24]):  # First 24 hours
+        color = period_colors[period_idx]
+        # Each hour spans 4 steps (15-min intervals)
+        start_step = hour * steps_per_hour
+        end_step = (hour + 1) * steps_per_hour
+        if end_step <= len(time_15min):
+            ax.axvspan(time_15min[start_step], time_15min[min(end_step, len(time_15min)-1)], alpha=0.3, color=color)
+    
+    ax.set_xlabel('Hour of Day', fontsize=24)
+    ax.set_ylabel('Available Capacity (kW)', fontsize=24)
+    ax.set_title('Optimal TOU Periods Based on Capacity Analysis (First 24 Hours, 15-min Resolution)', fontsize=28)
+    ax.set_xlim(0, 24)  # Set x-axis to 0-24 hours
+    ax.set_xticks(np.arange(0, 25, 4))  # Show every 4 hours: 0, 4, 8, 12, 16, 20, 24
+    ax.tick_params(axis='both', which='major', labelsize=20)  # Make tick labels bigger
+    ax.grid(True, alpha=0.3)
+    
+    # Add capacity range info as text on the plot
+    min_cap = min(hourly_capacity)
+    max_cap = max(hourly_capacity)
+    ax.text(0.02, 0.98, f'Capacity Range: {min_cap:.1f} - {max_cap:.1f} kW\nBucket Size: {(max_cap-min_cap)/4:.1f} kW', 
+            transform=ax.transAxes, fontsize=18, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    
+    # Save the figure to session state for persistence (don't display immediately)
+    st.session_state.optimal_tou_visualization = fig
+    
+    # Also save the period details for display
+    st.session_state.optimal_tou_period_details = []
+    period_counts_24 = [period_assignments[:24].count(i) for i in range(4)]
+    
+    # Define capacity ranges based on actual thresholds
+    capacity_ranges = [
+        (capacity_thresholds[2], max_cap),      # Super Off-Peak (0): highest capacity
+        (capacity_thresholds[1], capacity_thresholds[2]),  # Off-Peak (1): high capacity
+        (capacity_thresholds[0], capacity_thresholds[1]),  # Mid-Peak (2): low capacity
+        (min_cap, capacity_thresholds[0])       # Peak (3): lowest capacity
+    ]
+    
+    for i, (name, color, count) in enumerate(zip(period_names, period_colors, period_counts_24)):
+        if count > 0:
+            capacity_range_start, capacity_range_end = capacity_ranges[i]
+            st.session_state.optimal_tou_period_details.append({
+                'name': name,
+                'color': color,
+                'count': count,
+                'capacity_range_start': capacity_range_start,
+                'capacity_range_end': capacity_range_end,
+                'capacity_level': f"{'Lowest' if i==3 else 'Low' if i==2 else 'High' if i==1 else 'Highest'} capacity"
+            })
+
+def extract_margin_curve_from_current_data():
+    """
+    Extract margin curve from current grid data without running a simulation.
+    
+    Returns:
+        List of margin curve values or None if no data available
+    """
+    try:
+        # Get current configuration
+        available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+        capacity_margin = min(0.95, available_load_fraction + 0.1)  # Add 0.1 but cap at 0.95
+        
+        # Check if we have synthetic data
+        if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+            # Use synthetic data
+            power_values = st.session_state.synthetic_load_curve
+        elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
+            # Use real dataset
+            try:
+                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
+                selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
+                
+                # Filter data for selected date
+                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                day_data = df[df['date'].dt.date == selected_date]
+                
+                if not day_data.empty:
+                    power_values = day_data.iloc[:, 2].values
+                else:
+                    return None
+            except Exception as e:
+                st.error(f"Error reading dataset: {e}")
+                return None
+        else:
+            return None
+        
+        # Upsample 15-minute data to 1-minute intervals
+        margin_curve = np.repeat(power_values, 15).astype(float) * capacity_margin
+        
+        # Extend for 48 hours (2880 minutes)
+        sim_duration_min = 48 * 60  # 48 hours
+        
+        if len(margin_curve) < sim_duration_min:
+            # Repeat the profile to cover 48 hours
+            num_repeats = sim_duration_min // len(margin_curve) + 1
+            margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
+        else:
+            margin_curve = margin_curve[:sim_duration_min]
+        
+        return margin_curve.tolist()
+        
+    except Exception as e:
+        st.error(f"Error extracting margin curve: {e}")
+        return None
+
 # Portugal EV Scenarios dictionary
 portugal_ev_scenarios = {
     "substation_count": 69000,
@@ -441,7 +657,7 @@ with st.sidebar:
             grid_battery_adoption = 15
         grid_battery_charge_start_hour = 7
         grid_battery_charge_duration = 8
-        grid_battery_discharge_start_hour = 20
+        grid_battery_discharge_start_hour = 18
         grid_battery_discharge_duration = 4
         
         # Calculate V2G parameters (needed for display)
@@ -508,7 +724,7 @@ with st.sidebar:
             st.session_state.optimization_strategy['pv_adoption_percent'] = pv_adoption_percent
             st.session_state.optimization_strategy['battery_capacity'] = battery_capacity
             st.session_state.optimization_strategy['max_discharge_rate'] = discharge_rate
-            st.session_state.optimization_strategy['discharge_start_hour'] = 20  # Default 8pm
+            st.session_state.optimization_strategy['discharge_start_hour'] = 18  # Default 6pm
             st.session_state.optimization_strategy['solar_energy_percent'] = solar_energy_percent
             
             # Update V2G parameters from scenario data
@@ -525,7 +741,7 @@ with st.sidebar:
             
             st.session_state.optimization_strategy['v2g_adoption_percent'] = v2g_adoption_percent
             st.session_state.optimization_strategy['v2g_max_discharge_rate'] = v2g_discharge_rate
-            st.session_state.optimization_strategy['v2g_discharge_start_hour'] = 20  # Default 8pm
+            st.session_state.optimization_strategy['v2g_discharge_start_hour'] = 18  # Default 6pm
             st.session_state.optimization_strategy['v2g_discharge_duration'] = 3  # Default 3 hours
             st.session_state.optimization_strategy['v2g_recharge_arrival_hour'] = 26  # Default 2am next day
             
@@ -758,14 +974,14 @@ with st.sidebar:
                 'pv_power': 7,
                 'battery_capacity': 17.5,
                 'max_discharge_rate': 7.0,
-                'discharge_start_hour': 20,
+                'discharge_start_hour': 18,  # Default 6pm
                 'solar_energy_percent': 70,
                 'grid_battery_adoption_percent': 10,
                 'grid_battery_capacity': 20.0,
                 'grid_battery_max_rate': 5.0,
                 'grid_battery_charge_start_hour': 7,
                 'grid_battery_charge_duration': 8,
-                'grid_battery_discharge_start_hour': 20,
+                'grid_battery_discharge_start_hour': 18,  # Default 6pm
                 'grid_battery_discharge_duration': 4
             }
         
@@ -914,7 +1130,6 @@ with st.sidebar:
                 st.info(f"ℹ️ Total adoption is {total_adoption}% ({100 - total_adoption}% of users not using Time of Use)")
             else:
                 st.success(f"✅ Total adoption is {total_adoption}%")
-            
             
             # Add period legend in 2 columns (compressed)
             legend_col1, legend_col2 = st.columns(2)
@@ -1111,23 +1326,58 @@ with st.sidebar:
             
             # Add reset button under the timeline
             
-            if st.button("🔄 Reset Time-of-Use Timeline", type="secondary"):
-                # Clear session state assignments to restore original timeline defaults
-                st.session_state.pop('hour_assignments', None)
-                st.session_state.pop('initial_timeline', None)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔄 Reset TOU Timeline", type="secondary"):
+                    # Clear session state assignments to restore original timeline defaults
+                    st.session_state.pop('hour_assignments', None)
+                    st.session_state.pop('initial_timeline', None)
+                    
+                    # Clear optimized TOU values from dynamic capacity optimizer
+                    st.session_state.pop('optimized_tou_values', None)
+                    st.session_state.pop('dynamic_optimization_completed', None)
+                    st.session_state.pop('dynamic_optimization_results', None)
+                    st.session_state.pop('dynamic_optimization_car_count', None)
+                    
+                    # Restore original timeline
+                    if 'original_timeline' in st.session_state:
+                        st.session_state.time_of_use_timeline = st.session_state.original_timeline.copy()
+                    
+                    st.success("✅ Timeline reset to default values!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("🎯 Find Optimal TOU", type="secondary"):
+                    # Extract margin curve directly from current grid data
+                    margin_curve = extract_margin_curve_from_current_data()
+                    
+                    if margin_curve is not None:
+                        # Create optimal TOU periods based on capacity levels
+                        optimal_timeline = create_optimal_tou_periods(margin_curve)
+                        
+                        # Update the timeline with optimal periods
+                        st.session_state.time_of_use_timeline = optimal_timeline
+                        
+                        # Clear any existing hour assignments
+                        st.session_state.pop('hour_assignments', None)
+                        st.session_state.pop('initial_timeline', None)
+                        
+                        # st.success("✅ Optimal TOU periods created based on capacity analysis!")
+                        st.rerun()
+                    else:
+                        st.error("❌ No grid data available. Please select a dataset or generate synthetic data first.")
+            
+            # Display saved optimal TOU visualization if available (right after the button)
+            if 'optimal_tou_visualization' in st.session_state:
+                st.write("**📈 Optimal TOU Analysis Visualization:**")
+                st.pyplot(st.session_state.optimal_tou_visualization, use_container_width=True)
                 
-                # Clear optimized TOU values from dynamic capacity optimizer
-                st.session_state.pop('optimized_tou_values', None)
-                st.session_state.pop('dynamic_optimization_completed', None)
-                st.session_state.pop('dynamic_optimization_results', None)
-                st.session_state.pop('dynamic_optimization_car_count', None)
-                
-                # Restore original timeline
-                if 'original_timeline' in st.session_state:
-                    st.session_state.time_of_use_timeline = st.session_state.original_timeline.copy()
-                
-                st.success("✅ Timeline reset to default values!")
-                st.rerun()
+                # Display period details from session state
+                if 'optimal_tou_period_details' in st.session_state:
+                    st.write("**📊 Optimal TOU Period Details (First 24 Hours):**")
+                    for detail in st.session_state.optimal_tou_period_details:
+                        st.write(f"• **{detail['name']}** ({detail['capacity_level']}): {detail['capacity_range_start']:.1f} - {detail['capacity_range_end']:.1f} kW")
             
             # Update timeline based on session state assignments
             if 'hour_assignments' in st.session_state and st.session_state.hour_assignments:
@@ -1475,7 +1725,7 @@ with st.sidebar:
             with col2:
                 grid_battery_discharge_start_hour = st.slider(
                     "Discharge Start Hour",
-                    min_value=16.0,
+                    min_value=0.0,
                     max_value=26.0,
                     value=float(st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18)),
                     step=0.5,
@@ -1586,7 +1836,7 @@ with st.sidebar:
                     "V2G Discharge Start Hour",
                     min_value=18.0,
                     max_value=26.0,
-                    value=float(st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20)),
+                    value=float(st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 18)),
                     step=0.5,
                     help="Hour when V2G discharge starts (18-26)",
                     key="v2g_discharge_start_hour"
@@ -2574,7 +2824,7 @@ with col1:
                     pv_duration = st.session_state.optimization_strategy.get('pv_duration', 8)
                     charge_time = st.session_state.optimization_strategy.get('charge_time', battery_capacity / max_charge_rate)
                     system_support_time = st.session_state.optimization_strategy.get('system_support_time', pv_duration - charge_time)
-                    discharge_start_hour = st.session_state.optimization_strategy.get('discharge_start_hour', 20)
+                    discharge_start_hour = st.session_state.optimization_strategy.get('discharge_start_hour', 18)
                     discharge_duration = st.session_state.optimization_strategy.get('discharge_duration', battery_capacity / max_discharge_rate)
                     actual_discharge_rate = st.session_state.optimization_strategy.get('actual_discharge_rate', max_discharge_rate)
                     
@@ -2627,26 +2877,39 @@ with col1:
                                 time_of_day = minute % (24 * 60)
                                 
                                 # Day Phase: Simultaneous battery charging and grid support for this EV
-                                if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
-                                    # Calculate total PV power available for this EV
-                                    ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
-                                    
-                                    # Calculate remaining power for grid support
-                                    ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
-                                    
-                                    # Apply battery charging (no grid effect - PV charges batteries directly)
-                                    pv_battery_charge_curve[minute] += ev_required_charging_rate
-                                    
-                                    # Apply grid support (increases available capacity)
-                                    if ev_grid_support_power > 0:
-                                        pv_direct_support_curve[minute] += ev_grid_support_power
-                                        adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
-                                
-                                # Evening Phase: Battery discharge for this EV
-                                elif (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
-                                    ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
-                                    pv_battery_discharge_curve[minute] += ev_discharge_power
-                                    adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                                if ev_system_support_end_minute > 24 * 60:
+                                    # System support period extends beyond 24 hours, use absolute time
+                                    if (minute >= ev_pv_start_minute and minute < ev_system_support_end_minute):
+                                        # Calculate total PV power available for this EV
+                                        ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                                        
+                                        # Calculate remaining power for grid support
+                                        ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
+                                        
+                                        # Apply battery charging (no grid effect - PV charges batteries directly)
+                                        pv_battery_charge_curve[minute] += ev_required_charging_rate
+                                        
+                                        # Apply grid support (increases available capacity)
+                                        if ev_grid_support_power > 0:
+                                            pv_direct_support_curve[minute] += ev_grid_support_power
+                                            adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                                else:
+                                    # System support period is within same day, use modulo logic
+                                    time_of_day = minute % (24 * 60)
+                                    if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
+                                        # Calculate total PV power available for this EV
+                                        ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                                        
+                                        # Calculate remaining power for grid support
+                                        ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
+                                        
+                                        # Apply battery charging (no grid effect - PV charges batteries directly)
+                                        pv_battery_charge_curve[minute] += ev_required_charging_rate
+                                        
+                                        # Apply grid support (increases available capacity)
+                                        if ev_grid_support_power > 0:
+                                            pv_direct_support_curve[minute] += ev_grid_support_power
+                                            adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
                 
                 # Apply Grid-Charged Batteries optimization if enabled
                 grid_battery_charge_curve = np.zeros_like(grid_profile_full)
@@ -2657,7 +2920,7 @@ with col1:
                     grid_battery_max_rate = st.session_state.optimization_strategy.get('grid_battery_max_rate', 0)
                     grid_battery_charge_start_hour = st.session_state.optimization_strategy.get('grid_battery_charge_start_hour', 7)
                     grid_battery_charge_duration = st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8)
-                    grid_battery_discharge_start_hour = st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 20)
+                    grid_battery_discharge_start_hour = st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18)
                     grid_battery_discharge_duration = st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)
                     
                     if grid_battery_adoption_percent > 0 and grid_battery_capacity > 0 and grid_battery_max_rate > 0:
@@ -2740,7 +3003,7 @@ with col1:
                 if 'v2g' in st.session_state.get('active_strategies', []):
                     v2g_adoption_percent = st.session_state.optimization_strategy.get('v2g_adoption_percent', 0)
                     v2g_max_discharge_rate = st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0)
-                    v2g_discharge_start_hour = st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20)
+                    v2g_discharge_start_hour = st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 18)
                     v2g_discharge_duration = st.session_state.optimization_strategy.get('v2g_discharge_duration', 2)
                     
                     if v2g_adoption_percent > 0 and v2g_max_discharge_rate > 0:
@@ -2938,7 +3201,7 @@ with col1:
                     'pv_duration': st.session_state.optimization_strategy.get('pv_duration', 8),
                     'charge_time': st.session_state.optimization_strategy.get('charge_time', 0),
                     'system_support_time': st.session_state.optimization_strategy.get('system_support_time', 0),
-                    'discharge_start_hour': st.session_state.optimization_strategy.get('discharge_start_hour', 20),
+                    'discharge_start_hour': st.session_state.optimization_strategy.get('discharge_start_hour', 18),
                     'solar_energy_percent': st.session_state.optimization_strategy.get('solar_energy_percent', 70),
                     'grid_battery_applied': 'grid_battery' in st.session_state.get('active_strategies', []),
                     'grid_battery_adoption_percent': st.session_state.optimization_strategy.get('grid_battery_adoption_percent', 0),
@@ -2946,12 +3209,12 @@ with col1:
                     'grid_battery_max_rate': st.session_state.optimization_strategy.get('grid_battery_max_rate', 0),
                     'grid_battery_charge_start_hour': st.session_state.optimization_strategy.get('grid_battery_charge_start_hour', 7),
                     'grid_battery_charge_duration': st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8),
-                    'grid_battery_discharge_start_hour': st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 20),
+                    'grid_battery_discharge_start_hour': st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18),
                     'grid_battery_discharge_duration': st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4),
                     'v2g_applied': 'v2g' in st.session_state.get('active_strategies', []),
                     'v2g_adoption_percent': st.session_state.optimization_strategy.get('v2g_adoption_percent', 0),
                     'v2g_max_discharge_rate': st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0),
-                    'v2g_discharge_start_hour': st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 20),
+                    'v2g_discharge_start_hour': st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 18),
                     'v2g_discharge_duration': st.session_state.optimization_strategy.get('v2g_discharge_duration', 3),
                     'v2g_recharge_arrival_hour': st.session_state.optimization_strategy.get('v2g_recharge_arrival_hour', 26),
                     # Synthetic data information
@@ -2987,10 +3250,15 @@ with col1:
         with col_controls2:
             show_legend = st.checkbox("Show Legend", value=True, key="show_legend",
                                     help="Display graph legend")
+            smooth_graph = st.checkbox("Smooth Graph", value=False, key="smooth_graph",
+                                     help="Use smooth lines instead of stepped lines for the graph")
         
         with col_controls3:
             show_safety_margin = st.checkbox("Show Safety Margin", value=True, key="show_safety_margin",
                                            help="Display 20% safety margin line")
+        
+        
+    
         
         # Plot results with two subplots
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), height_ratios=[2, 1])
@@ -3005,6 +3273,13 @@ with col1:
         # Convert to day-hour format (01-00, 01-04, 01-08, ..., 01-24, 02-04, etc.)
         time_hours = np.arange(len(plot_load_curve)) / 60
         time_day_hour = time_hours  # Keep continuous hours for plotting
+        
+        # Initialize grid-related variables
+        plot_grid_limit = None
+        plot_adjusted_grid_limit = None
+        plot_original_grid_limit = None
+        grid_time = None
+        grid_time_day_hour = None
         
         # Top plot: EV Load and Grid Limits
         if results['grid_limit'] is not None:
@@ -3028,75 +3303,146 @@ with col1:
             grid_time_day_hour = grid_time  # Keep continuous hours for plotting
             time_hours = np.arange(len(plot_load_curve)) / 60
             time_day_hour = time_hours  # Keep continuous hours for plotting
-            
-            # 1. Grid Limit (red dashed line)
-            if 'adjusted_grid_limit_before_margin' in results:
-                ax1.step(grid_time_day_hour, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
-            
-            # 2. Battery Effects (charging and discharging)
-            if show_battery_effects:
-                pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
-                grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
-                v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
-                grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
-                
-                # Get PV direct system support and battery discharge curves
-                pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
-                pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
-                
-                # PV direct system support (lightgreen shading - PV discharge during the day)
-                if pv_direct_support is not None and np.any(pv_direct_support > 0):
-                    plot_pv_direct_support = pv_direct_support[:max_plot_points]
-                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
-                                   color='lightgreen', alpha=0.4, label='PV Direct System Support (Increases Capacity)')
-                
-                # 3. Battery Charging Effects (separate PV and Grid charging)
-                if pv_charge is not None and np.any(pv_charge > 0):
-                    # PV battery charging (orange shading with diagonal stripes - stacked on top of PV direct support)
-                    plot_pv_charge = pv_charge[:max_plot_points]
-                    # Calculate the base level for stacking (original grid limit + PV direct support)
-                    base_level = plot_original_grid_limit
-                    if pv_direct_support is not None and np.any(pv_direct_support > 0):
-                        base_level = plot_original_grid_limit + plot_pv_direct_support
-                    
-                    ax1.fill_between(grid_time_day_hour, base_level, base_level + plot_pv_charge, 
-                                   color='orange', alpha=0.4, hatch='////', label='PV Battery Charging (No grid effect)')
-                
-                if grid_charge is not None and np.any(grid_charge > 0):
-                    # Grid battery charging (lightcoral shading - reduces grid capacity)
-                    plot_grid_charge = grid_charge[:max_plot_points]
-                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit - plot_grid_charge, plot_original_grid_limit, 
-                                   color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
-                
-                # Combine all battery discharging effects (PV battery + grid battery + V2G discharge)
-                has_battery_discharge_effects = (pv_battery_discharge is not None and np.any(pv_battery_discharge > 0)) or (grid_discharge is not None and np.any(grid_discharge > 0)) or (v2g_discharge is not None and np.any(v2g_discharge > 0))
-                if has_battery_discharge_effects:
-                    combined_battery_discharge = np.zeros_like(plot_original_grid_limit)
-                    if pv_battery_discharge is not None:
-                        plot_pv_battery_discharge = pv_battery_discharge[:max_plot_points]
-                        combined_battery_discharge += plot_pv_battery_discharge
-                    if grid_discharge is not None:
-                        plot_grid_discharge = grid_discharge[:max_plot_points]
-                        combined_battery_discharge += plot_grid_discharge
-                    if v2g_discharge is not None:
-                        plot_v2g_discharge = v2g_discharge[:max_plot_points]
-                        combined_battery_discharge += plot_v2g_discharge
-                    
-                    # Plot combined battery discharging effects (light blue color for battery discharge during peak)
-                    ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + combined_battery_discharge, 
-                                   color='#87CEEB', alpha=0.4, label='Battery Discharge Effects (Combined)')
-            
-            # 4. Grid Limit with margin (orange dashed line)
-            safety_percentage = st.session_state.get('available_load_fraction', 0.8) * 100
-            ax1.step(grid_time_day_hour, plot_grid_limit, where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
         
+        # Resample data to 10-minute intervals if smooth_graph is enabled
+        if smooth_graph:
+            # Resample from 1-minute to 10-minute intervals
+            resample_factor = 10
+            plot_load_curve = plot_load_curve[::resample_factor]
+            if plot_grid_limit is not None:
+                plot_grid_limit = plot_grid_limit[::resample_factor]
+            if plot_adjusted_grid_limit is not None:
+                plot_adjusted_grid_limit = plot_adjusted_grid_limit[::resample_factor]
+            if plot_original_grid_limit is not None:
+                plot_original_grid_limit = plot_original_grid_limit[::resample_factor]
+            
+            # Adjust time arrays accordingly
+            time_hours = np.arange(len(plot_load_curve)) * resample_factor / 60
+            time_day_hour = time_hours
+            if grid_time is not None:
+                grid_time = np.arange(len(plot_grid_limit)) * resample_factor / 60
+                grid_time_day_hour = grid_time
+        
+        # 1. Grid Limit (red dashed line)
+        if 'adjusted_grid_limit_before_margin' in results and plot_adjusted_grid_limit is not None:
+            if smooth_graph:
+                ax1.plot(grid_time_day_hour, plot_adjusted_grid_limit, color='red', linestyle='--', alpha=0.7, label='Grid Limit')
+            else:
+                ax1.step(grid_time_day_hour, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
+        
+        # 2. Battery Effects (charging and discharging)
+        if show_battery_effects and plot_original_grid_limit is not None:
+            pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
+            grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
+            v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
+            grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
+            
+            # Get PV direct system support and battery discharge curves
+            pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
+            pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
+            
+            # Resample battery effects data if smooth_graph is enabled
+            if smooth_graph:
+                resample_factor = 10
+                if pv_charge is not None:
+                    pv_charge = pv_charge[:max_plot_points][::resample_factor]
+                if grid_discharge is not None:
+                    grid_discharge = grid_discharge[:max_plot_points][::resample_factor]
+                if v2g_discharge is not None:
+                    v2g_discharge = v2g_discharge[:max_plot_points][::resample_factor]
+                if grid_charge is not None:
+                    grid_charge = grid_charge[:max_plot_points][::resample_factor]
+                if pv_direct_support is not None:
+                    pv_direct_support = pv_direct_support[:max_plot_points][::resample_factor]
+                if pv_battery_discharge is not None:
+                    pv_battery_discharge = pv_battery_discharge[:max_plot_points][::resample_factor]
+            
+            # PV direct system support (lightgreen shading - PV discharge during the day)
+            if pv_direct_support is not None and np.any(pv_direct_support > 0):
+                if smooth_graph:
+                    plot_pv_direct_support = pv_direct_support
+                else:
+                    plot_pv_direct_support = pv_direct_support[:max_plot_points]
+                ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + plot_pv_direct_support, 
+                               color='lightgreen', alpha=0.4, label='PV Direct System Support (Increases Capacity)')
+            
+            # 3. Battery Charging Effects (separate PV and Grid charging)
+            if pv_charge is not None and np.any(pv_charge > 0):
+                # PV battery charging (orange shading with diagonal stripes - stacked on top of PV direct support)
+                if smooth_graph:
+                    plot_pv_charge = pv_charge
+                else:
+                    plot_pv_charge = pv_charge[:max_plot_points]
+                # Calculate the base level for stacking (original grid limit + PV direct support)
+                base_level = plot_original_grid_limit
+                if pv_direct_support is not None and np.any(pv_direct_support > 0):
+                    base_level = plot_original_grid_limit + plot_pv_direct_support
+                
+                ax1.fill_between(grid_time_day_hour, base_level, base_level + plot_pv_charge, 
+                               color='orange', alpha=0.4, hatch='////', label='PV Battery Charging (No grid effect)')
+            
+            if grid_charge is not None and np.any(grid_charge > 0):
+                # Grid battery charging (lightcoral shading - reduces grid capacity)
+                if smooth_graph:
+                    plot_grid_charge = grid_charge
+                else:
+                    plot_grid_charge = grid_charge[:max_plot_points]
+                ax1.fill_between(grid_time_day_hour, plot_original_grid_limit - plot_grid_charge, plot_original_grid_limit, 
+                               color='lightcoral', alpha=0.3, label='Grid Battery Charging (Reduces Capacity)')
+            
+            # Combine all battery discharging effects (PV battery + grid battery + V2G discharge)
+            has_battery_discharge_effects = (pv_battery_discharge is not None and np.any(pv_battery_discharge > 0)) or (grid_discharge is not None and np.any(grid_discharge > 0)) or (v2g_discharge is not None and np.any(v2g_discharge > 0))
+            if has_battery_discharge_effects:
+                if smooth_graph:
+                    combined_battery_discharge = np.zeros_like(plot_original_grid_limit)
+                else:
+                    combined_battery_discharge = np.zeros_like(plot_original_grid_limit)
+                if pv_battery_discharge is not None:
+                    if smooth_graph:
+                        plot_pv_battery_discharge = pv_battery_discharge
+                    else:
+                        plot_pv_battery_discharge = pv_battery_discharge[:max_plot_points]
+                    combined_battery_discharge += plot_pv_battery_discharge
+                if grid_discharge is not None:
+                    if smooth_graph:
+                        plot_grid_discharge = grid_discharge
+                    else:
+                        plot_grid_discharge = grid_discharge[:max_plot_points]
+                    combined_battery_discharge += plot_grid_discharge
+                if v2g_discharge is not None:
+                    if smooth_graph:
+                        plot_v2g_discharge = v2g_discharge
+                    else:
+                        plot_v2g_discharge = v2g_discharge[:max_plot_points]
+                    combined_battery_discharge += plot_v2g_discharge
+                
+                # Plot combined battery discharging effects (light blue color for battery discharge during peak)
+                ax1.fill_between(grid_time_day_hour, plot_original_grid_limit, plot_original_grid_limit + combined_battery_discharge, 
+                               color='#87CEEB', alpha=0.4, label='Battery Discharge Effects (Combined)')
+        
+        # 4. Grid Limit with margin (orange dashed line)
+        if plot_grid_limit is not None:
+            safety_percentage = st.session_state.get('available_load_fraction', 0.8) * 100
+            if smooth_graph:
+                ax1.plot(grid_time_day_hour, plot_grid_limit, color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
+            else:
+                ax1.step(grid_time_day_hour, plot_grid_limit, where='post', color='orange', linestyle='--', alpha=0.9, label=f'Grid Limit ({safety_percentage:.0f}% safety margin)')
+    
         # 5. EV Load (blue line)
-        ax1.plot(time_day_hour, plot_load_curve, 'b-', linewidth=2, label='EV Load')
+        if smooth_graph:
+            ax1.plot(time_day_hour, plot_load_curve, 'b-', linewidth=2, label='EV Load')
+        else:
+            ax1.step(time_day_hour, plot_load_curve, where='post', color='blue', linewidth=2, label='EV Load')
         
         # Ensure y-axis shows both lines
-        if results['grid_limit'] is not None:
+        if results['grid_limit'] is not None and plot_grid_limit is not None and plot_original_grid_limit is not None:
             min_y = 0
             max_y = max(np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve)) * 1.1
+            ax1.set_ylim(min_y, max_y)
+        else:
+            # Set y-axis limits based only on load curve if no grid data
+            min_y = 0
+            max_y = np.max(plot_load_curve) * 1.1
             ax1.set_ylim(min_y, max_y)
         
         if show_legend:
@@ -3140,12 +3486,18 @@ with col1:
             
             # Plot available capacity up to adjusted limit before 80% margin (with battery effects)
             ax2.fill_between(grid_time_day_hour, 0, available_capacity_before_margin, color='lightgreen', alpha=0.7, label='Available Grid Capacity')
-            ax2.plot(grid_time_day_hour, available_capacity_before_margin, 'g-', linewidth=2, label='_nolegend_')
+            if smooth_graph:
+                ax2.plot(grid_time_day_hour, available_capacity_before_margin, 'g-', linewidth=2, label='_nolegend_')
+            else:
+                ax2.step(grid_time_day_hour, available_capacity_before_margin, where='post', color='green', linewidth=2, label='_nolegend_')
             
             # Add red dashed line to show the 20% margin that shouldn't be used
             if show_safety_margin:
                 margin_capacity = plot_adjusted_grid_limit - plot_grid_limit
-                ax2.plot(grid_time_day_hour, margin_capacity, 'r--', linewidth=2, alpha=0.8, label='20% Safety Margin')
+                if smooth_graph:
+                    ax2.plot(grid_time_day_hour, margin_capacity, 'r--', linewidth=2, alpha=0.8, label='20% Safety Margin')
+                else:
+                    ax2.step(grid_time_day_hour, margin_capacity, where='post', color='red', linestyle='--', linewidth=2, alpha=0.8, label='20% Safety Margin')
             
             # Add average line if requested
             if show_average_line and np.any(available_capacity_before_margin > 0):
