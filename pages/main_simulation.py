@@ -364,399 +364,482 @@ with st.sidebar:
         st.write("**Select year and scenario to automatically set EV parameters:**")
         st.caption("⚠️ Note: Applying a scenario will change all EV and charger parameters to match the selected scenario.")
         
-
+        # Scenario type toggle
+        scenario_type = st.radio(
+            "Scenario Type",
+            options=["Built-in Scenarios", "Custom Scenarios"],
+            horizontal=True,
+            help="Choose between built-in Portugal scenarios or your custom scenarios"
+        )
         
         # Initialize scenario values in session state if not exists
         if 'portugal_scenario' not in st.session_state:
             st.session_state.portugal_scenario = {
                 'year': '2030',
                 'scenario': 'realistic',
-                'applied': False
             }
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        if scenario_type == "Built-in Scenarios":
+            # Built-in scenarios section
             selected_year = st.selectbox(
                 "Year",
-                options=list(portugal_ev_scenarios.keys())[1:] + list(st.session_state.get('custom_scenarios', {}).keys()),
+                options=list(portugal_ev_scenarios.keys())[1:],
                 index=list(portugal_ev_scenarios.keys())[1:].index(st.session_state.portugal_scenario['year']) if st.session_state.portugal_scenario['year'] in list(portugal_ev_scenarios.keys())[1:] else 0,
                 help="Select the target year for the scenario"
             )
-        
-        with col2:
+            
             # Get available scenarios for selected year
-            if selected_year in portugal_ev_scenarios:
-                # Built-in scenarios for this year
-                available_scenarios = ['conservative', 'realistic', 'aggressive']
-            else:
-                # Custom scenarios for this year
-                available_scenarios = list(st.session_state.get('custom_scenarios', {}).get(selected_year, {}).get('scenarios', {}).keys())
+            available_scenarios = ['conservative', 'realistic', 'aggressive']
             
             selected_scenario = st.selectbox(
                 "Scenario",
                 options=available_scenarios,
-                index=0,
+                index=available_scenarios.index(st.session_state.portugal_scenario['scenario']) if st.session_state.portugal_scenario['scenario'] in available_scenarios else 1,
                 help="Select the scenario type"
             )
-        
-        # Get scenario data
-        if selected_scenario in ['conservative', 'realistic', 'aggressive']:
-            # Built-in Portugal scenario
+            
+            # Get scenario data
             scenario_data = portugal_ev_scenarios[selected_year]['scenarios'][selected_scenario]
             year_data = portugal_ev_scenarios[selected_year]
-            total_cars_million = year_data['total_cars_million']
-            total_evs_million = year_data['total_evs_million']
-            home_charging_percent = year_data['home_charging_percent']
-            home_charged_evs_million = year_data['home_charged_evs_million']
-            smart_charging_percent = year_data.get('smart_charging_percent', 0)
-            pv_adoption_percent = year_data.get('pv_adoption_percent', 0)
-            battery_capacity = year_data.get('battery_capacity', 0)
-            discharge_rate = year_data.get('discharge_rate', 0)
-            solar_energy_percent = year_data.get('solar_energy_percent', 70)
-            notes = year_data['notes']
-        else:
-            # Custom scenario
-            scenario_data = st.session_state.custom_scenarios[selected_year]['scenarios'][selected_scenario]
-            total_cars_million = st.session_state.custom_scenarios[selected_year]['total_cars_million']
-            # Default values for custom scenarios
-            total_evs_million = total_cars_million * scenario_data['ev_penetration']
-            home_charging_percent = 0.80  # Default 80% for custom scenarios
-            home_charged_evs_million = total_evs_million * home_charging_percent
-            smart_charging_percent = 0  # Default 0% for custom scenarios
-            pv_adoption_percent = 30  # Default 30% for custom scenarios
-            battery_capacity = 17.5  # Default battery capacity for custom scenarios
-            discharge_rate = 7.0  # Default discharge rate for custom scenarios
-            solar_energy_percent = 70  # Default solar energy percent for custom scenarios
-            notes = "Custom scenario"
-        
-        substation_count = portugal_ev_scenarios['substation_count']
-        
-        # Calculate EVs per substation
-        total_cars = total_cars_million * 1_000_000
-        evs_per_substation = (total_cars * scenario_data['ev_penetration']) / substation_count
-        
-        # Calculate grid battery parameters (needed for the button)
-        try:
+            
+            # Calculate EVs per substation
+            total_cars = year_data['total_cars_million'] * 1_000_000
+            substation_count = portugal_ev_scenarios['substation_count']
+            evs_per_substation = (total_cars * scenario_data['ev_penetration']) / substation_count
+            
+            # Calculate scenario year for optimization strategies
             scenario_year_int = int(selected_year)
-        except Exception:
-            scenario_year_int = 2030
-        if scenario_year_int <= 2027:
-            grid_battery_capacity = 12.5
-            grid_battery_max_rate = 3.0
-            grid_battery_adoption = 5
-        elif scenario_year_int <= 2030:
-            grid_battery_capacity = 20.0
-            grid_battery_max_rate = 5.0
-            grid_battery_adoption = 10
-        else:
-            grid_battery_capacity = 27.5
-            grid_battery_max_rate = 7.0
-            grid_battery_adoption = 15
-        grid_battery_charge_start_hour = 7
-        grid_battery_charge_duration = 8
-        grid_battery_discharge_start_hour = 18
-        grid_battery_discharge_duration = 4
-        
-        # Calculate V2G parameters (needed for display)
-        if scenario_year_int <= 2027:
-            v2g_adoption_percent = 5
-        elif scenario_year_int <= 2030:
-            v2g_adoption_percent = 20
-        else:
-            v2g_adoption_percent = 40
-        
-        # V2G discharge rate same as charging rate
-        v2g_discharge_rate = scenario_data['charging_power_kW']
-        
-        # Apply scenario button (moved to top)
-        if st.button("🚀 Apply Scenario", type="primary"):
-            # Update EV parameters
-            st.session_state.dynamic_ev = {
-                'capacity': scenario_data['avg_battery_kWh'],
-                'AC': scenario_data['charging_power_kW']
-            }
             
-            # Set default SOC for scenario (20% for realistic scenarios)
-            st.session_state.ev_soc = 0.2
+            # Smart charging adoption based on scenario year
+            if scenario_year_int <= 2027:
+                smart_charging_percent = 20
+            elif scenario_year_int <= 2030:
+                smart_charging_percent = 40
+            else:
+                smart_charging_percent = 60
             
-            # Update charger parameters
-            st.session_state.charger_config = {
-                'ac_rate': scenario_data['charging_power_kW'],
-                'ac_count': math.ceil(evs_per_substation)
-            }
+            # Grid battery adoption based on scenario year
+            if scenario_year_int <= 2027:
+                grid_battery_adoption = 5
+            elif scenario_year_int <= 2030:
+                grid_battery_adoption = 15
+            else:
+                grid_battery_adoption = 25
             
-            # Update EV calculator
-            st.session_state.ev_calculator = {
-                'num_substations': substation_count,
-                'penetration_percent': scenario_data['ev_penetration'] * 100,
-                'total_cars': int(total_cars),
-                'evs_per_substation': evs_per_substation
-            }
-            
-            # Update time peaks with calculated EVs
-            total_evs = math.ceil(evs_per_substation)
-            if total_evs > 0:
-                # Update or create the single peak
-                if 'time_peaks' in st.session_state and st.session_state.time_peaks:
-                    # Update existing peak
-                    st.session_state.time_peaks[0]['quantity'] = total_evs
-                else:
-                    # Create default peak if none exists
-                    st.session_state.time_peaks = [
-                        {
-                            'name': 'Evening Peak',
-                            'time': 19,
-                            'span': 3,
-                            'quantity': total_evs,
-                            'enabled': True
-                        }
-                    ]
-            
-            # Update optimization strategy based on smart charging percentage
-            if smart_charging_percent > 0:
-                st.session_state.optimization_strategy['smart_charging_percent'] = smart_charging_percent
-                st.session_state.optimization_strategy['shift_start_time'] = 23
-            
-            # Update PV + battery parameters from scenario data
-            st.session_state.optimization_strategy['pv_adoption_percent'] = pv_adoption_percent
-            st.session_state.optimization_strategy['battery_capacity'] = battery_capacity
-            st.session_state.optimization_strategy['max_discharge_rate'] = discharge_rate
-            st.session_state.optimization_strategy['discharge_start_hour'] = 18  # Default 6pm
-            st.session_state.optimization_strategy['solar_energy_percent'] = solar_energy_percent
-            
-            # Update V2G parameters from scenario data
             # V2G adoption based on scenario year
             if scenario_year_int <= 2027:
                 v2g_adoption_percent = 5
             elif scenario_year_int <= 2030:
-                v2g_adoption_percent = 20
+                v2g_adoption_percent = 15
             else:
-                v2g_adoption_percent = 40
+                v2g_adoption_percent = 25
             
-            # V2G discharge rate same as charging rate
             v2g_discharge_rate = scenario_data['charging_power_kW']
             
-            st.session_state.optimization_strategy['v2g_adoption_percent'] = v2g_adoption_percent
-            st.session_state.optimization_strategy['v2g_max_discharge_rate'] = v2g_discharge_rate
-            st.session_state.optimization_strategy['v2g_discharge_start_hour'] = 18  # Default 6pm
-            st.session_state.optimization_strategy['v2g_discharge_duration'] = 3  # Default 3 hours
-            st.session_state.optimization_strategy['v2g_recharge_arrival_hour'] = 26  # Default 2am next day
+            # Apply scenario button
+            if st.button("🚀 Apply Scenario", type="primary"):
+                # Update EV configuration
+                st.session_state.dynamic_ev = {
+                    'capacity': scenario_data['avg_battery_kWh'],
+                    'AC': scenario_data['charging_power_kW']
+                }
+                
+                # Set default SOC for scenario (20% for realistic scenarios)
+                st.session_state.ev_soc = 0.2
+                
+                # Update charger configuration
+                st.session_state.dynamic_charger = {
+                    'ac_rate': scenario_data['charging_power_kW'],
+                }
+                
+                # Update time peaks configuration
+                st.session_state.time_peaks = [
+                    {
+                        'quantity': math.ceil(evs_per_substation),
+                        'penetration_percent': scenario_data['ev_penetration'] * 100,
+                    }
+                ]
+                
+                # Update optimization strategies
+                st.session_state.optimization_strategy['smart_charging_percent'] = smart_charging_percent
+                st.session_state.optimization_strategy['pv_adoption_percent'] = 30
+                st.session_state.optimization_strategy['battery_capacity'] = 17.5
+                st.session_state.optimization_strategy['max_discharge_rate'] = 7.0
+                st.session_state.optimization_strategy['discharge_start_hour'] = 18
+                st.session_state.optimization_strategy['solar_energy_percent'] = 70
+                st.session_state.optimization_strategy['grid_battery_adoption_percent'] = grid_battery_adoption
+                st.session_state.optimization_strategy['grid_battery_capacity'] = 20.0
+                st.session_state.optimization_strategy['grid_battery_max_rate'] = 5.0
+                st.session_state.optimization_strategy['grid_battery_charge_start_hour'] = 7
+                st.session_state.optimization_strategy['grid_battery_charge_duration'] = 8
+                st.session_state.optimization_strategy['grid_battery_discharge_start_hour'] = 18
+                st.session_state.optimization_strategy['grid_battery_discharge_duration'] = 4
+                st.session_state.optimization_strategy['v2g_adoption_percent'] = v2g_adoption_percent
+                st.session_state.optimization_strategy['v2g_discharge_duration'] = 3
+                st.session_state.optimization_strategy['v2g_max_discharge_rate'] = v2g_discharge_rate
+                st.session_state.optimization_strategy['v2g_start_hour'] = 18
+                
+                # Update active strategies
+                st.session_state.active_strategies = ['smart_charging', 'pv_battery', 'grid_battery', 'v2g']
+                
+                # Update session state
+                st.session_state.portugal_scenario = {
+                    'year': selected_year,
+                    'scenario': selected_scenario,
+                }
+                
+                st.session_state.scenario_success_message = f"✅ Scenario applied! {math.ceil(evs_per_substation)} EVs distributed across peaks. Smart charging set to {smart_charging_percent}%. Grid battery set to {grid_battery_adoption}% adoption. V2G set to {v2g_adoption_percent}% adoption."
+                st.session_state.scenario_success_timer = 0
+                st.rerun()
             
-            # --- Set grid-charged battery (normal battery) values ---
-            st.session_state.optimization_strategy['grid_battery_adoption_percent'] = grid_battery_adoption
-            st.session_state.optimization_strategy['grid_battery_capacity'] = grid_battery_capacity
-            st.session_state.optimization_strategy['grid_battery_max_rate'] = grid_battery_max_rate
-            st.session_state.optimization_strategy['grid_battery_charge_start_hour'] = grid_battery_charge_start_hour
-            st.session_state.optimization_strategy['grid_battery_charge_duration'] = grid_battery_charge_duration
-            st.session_state.optimization_strategy['grid_battery_discharge_start_hour'] = grid_battery_discharge_start_hour
-            st.session_state.optimization_strategy['grid_battery_discharge_duration'] = grid_battery_discharge_duration
+            # Display scenario details after the button
+            st.write(f"**📊 Scenario Details:**")
+            st.write(f"**Year:** {selected_year}")
+            st.write(f"**Scenario:** {selected_scenario.title()}")
+            st.write(f"**Total Cars:** {year_data['total_cars_million']:.1f}M")
+            st.write(f"**Total EVs:** {year_data['total_cars_million'] * scenario_data['ev_penetration']:.1f}M")
+            st.write(f"• **EV Penetration:** {scenario_data['ev_penetration']*100:.0f}%")
+            st.write(f"• **Home Charging:** {year_data['home_charging_percent']*100:.0f}% ({year_data['home_charged_evs_million']:.1f}M EVs)")
+            st.write(f"• **Battery Capacity:** {scenario_data['avg_battery_kWh']:.0f} kWh")
+            st.write(f"• **Charging Power:** {scenario_data['charging_power_kW']:.1f} kW")
+            st.write(f"• **Smart Charging:** {smart_charging_percent}%")
+            st.write(f"• **Grid Battery:** {grid_battery_adoption}%")
+            st.write(f"• **V2G:** {v2g_adoption_percent}%")
+            st.write(f"• **AC Chargers:** {math.ceil(evs_per_substation)} chargers ({scenario_data['charging_power_kW']:.1f} kW each)")
+            st.write(f"• **Total Charger Capacity:** {math.ceil(evs_per_substation) * scenario_data['charging_power_kW']:.1f} kW")
             
-            st.session_state.portugal_scenario = {
-                'year': selected_year,
-                'scenario': selected_scenario,
-                'applied': True
-            }
+            # Comprehensive scenario summary
+            st.write(f"**📈 General Data:**")
+            st.write(f"• **Total Cars:** {year_data['total_cars_million']:.1f}M")
+            st.write(f"• **Total EVs:** {year_data['total_cars_million'] * scenario_data['ev_penetration']:.1f}M")
+            st.write(f"• **EV Penetration:** {scenario_data['ev_penetration']*100:.0f}%")
+            st.write(f"• **Home Charging:** {year_data['home_charging_percent']*100:.0f}% ({year_data['home_charged_evs_million']:.1f}M EVs)")
+            st.write(f"• **EVs per Substation:** {evs_per_substation:.2f}")
             
-            # Set success message in session state
-            st.session_state.scenario_success_message = f"✅ Scenario applied! {total_evs} EVs distributed across peaks. Smart charging set to {smart_charging_percent}%. Grid battery set to {grid_battery_adoption}% adoption. V2G set to {v2g_adoption_percent}% adoption."
-            st.session_state.scenario_success_timer = 0
+            # EV Configuration
+            st.write(f"**🚗 EV Configuration:**")
+            st.write(f"• **Battery Capacity:** {scenario_data['avg_battery_kWh']:.0f} kWh")
+            st.write(f"• **Charging Power:** {scenario_data['charging_power_kW']:.1f} kW")
+            st.write(f"• **Initial SOC:** 20%")
             
-            st.rerun()
+            # Charger Configuration
+            st.write(f"**🔌 Charger Configuration:**")
+            st.write(f"• **AC Chargers:** {math.ceil(evs_per_substation)} chargers ({scenario_data['charging_power_kW']:.1f} kW each)")
+            st.write(f"• **Total Charger Capacity:** {math.ceil(evs_per_substation) * scenario_data['charging_power_kW']:.1f} kW")
+            
+            # Smart Charging
+            st.write(f"**🌙 Smart Charging:**")
+            st.write(f"• **Smart Charging:** {smart_charging_percent:.0f}%")
+            
+            # PV + Battery System
+            st.write(f"**☀️ PV + Battery System:**")
+            st.write(f"• **PV + Battery Adoption:** 30%")
+            st.write(f"• **Battery Capacity:** 17.5 kWh")
+            st.write(f"• **Discharge Rate:** 7.0 kW")
+            st.write(f"• **Solar Energy Available:** 70%")
+            
+            # Grid-Charged Battery
+            st.write(f"**🔋 Grid-Charged Battery (Normal Battery):**")
+            st.write(f"• **Adoption:** {grid_battery_adoption}%")
+            st.write(f"• **Capacity:** 20.0 kWh")
+            st.write(f"• **Max Rate:** 5.0 kW")
+            st.write(f"• **Charge:** 7:00 for 8h")
+            st.write(f"• **Discharge:** 18:00 for 4h")
+            
+            # V2G Section
+            st.write(f"**🚗 Vehicle-to-Grid (V2G):**")
+            st.write(f"• **Adoption:** {v2g_adoption_percent}%")
+            st.write(f"• **Discharge Rate:** {v2g_discharge_rate:.1f} kW (same as charging rate)")
+            st.write(f"• **Discharge:** 18:00 for 3h")
+            st.write(f"• **Recharge Arrival:** 02:00 next day (26:00)")
+            
+            st.write(f"**📝 Notes:** {year_data['notes']}")
         
-        # Display scenario details after the button
-        st.write(f"**📊 Scenario Details:**")
-        st.write(f"**Year:** {selected_year}")
-        st.write(f"**Scenario:** {selected_scenario.title()}")
+        else:
+            # Custom scenarios section
+            if 'custom_scenarios' not in st.session_state:
+                st.session_state.custom_scenarios = {}
+            
+            # Get all available custom years
+            custom_years = list(st.session_state.custom_scenarios.keys())
+            
+            if custom_years:
+                selected_custom_year = st.selectbox(
+                    "Year",
+                    options=custom_years,
+                    help="Select the year for custom scenarios"
+                )
+                
+                # Get available scenarios for selected year
+                available_custom_scenarios = list(st.session_state.custom_scenarios[selected_custom_year]['scenarios'].keys())
+                
+                if available_custom_scenarios:
+                    selected_custom_scenario = st.selectbox(
+                        "Custom Scenario",
+                        options=available_custom_scenarios,
+                        help="Select your custom scenario"
+                    )
+                    
+                    # Get custom scenario data
+                    scenario_data = st.session_state.custom_scenarios[selected_custom_year]['scenarios'][selected_custom_scenario]
+                    year_data = st.session_state.custom_scenarios[selected_custom_year]
+                    total_cars_million = st.session_state.custom_scenarios[selected_custom_year]['total_cars_million']
+                    
+                    # Calculate EVs per substation
+                    total_cars = total_cars_million * 1_000_000
+                    substation_count = portugal_ev_scenarios['substation_count']
+                    evs_per_substation = (total_cars * scenario_data['ev_penetration']) / substation_count
+                    
+                    # Apply custom scenario button
+                    if st.button("🚀 Apply Custom Scenario", type="primary"):
+                        # Update EV configuration
+                        st.session_state.dynamic_ev = {
+                            'capacity': scenario_data['avg_battery_kWh'],
+                            'AC': scenario_data['charging_power_kW']
+                        }
+                        
+                        # Set default SOC
+                        st.session_state.ev_soc = 0.2
+                        
+                        # Update charger configuration
+                        st.session_state.dynamic_charger = {
+                            'ac_rate': scenario_data['charging_power_kW'],
+                        }
+                        
+                        # Update time peaks configuration
+                        st.session_state.time_peaks = [
+                            {
+                                'quantity': math.ceil(evs_per_substation),
+                                'penetration_percent': scenario_data['ev_penetration'] * 100,
+                            }
+                        ]
+                        
+                        st.success(f"✅ Custom scenario '{selected_custom_scenario}' applied!")
+                        st.rerun()
+                    
+                    # Display custom scenario details
+                    st.write(f"**📊 Custom Scenario Details:**")
+                    st.write(f"**Year:** {selected_custom_year}")
+                    st.write(f"**Name:** {selected_custom_scenario}")
+                    st.write(f"**Total Cars:** {total_cars_million:.1f}M")
+                    st.write(f"**Total EVs:** {total_cars_million * scenario_data['ev_penetration']:.1f}M")
+                    st.write(f"• **EV Penetration:** {scenario_data['ev_penetration']*100:.0f}%")
+                    st.write(f"• **Home Charging:** {year_data.get('home_charging_percent', 0.8)*100:.0f}% ({total_cars_million * scenario_data['ev_penetration'] * year_data.get('home_charging_percent', 0.8):.1f}M EVs)")
+                    st.write(f"• **Battery Capacity:** {scenario_data['avg_battery_kWh']:.0f} kWh")
+                    st.write(f"• **Charging Power:** {scenario_data['charging_power_kW']:.1f} kW")
+                    st.write(f"• **Smart Charging:** {scenario_data.get('optimization_params', {}).get('smart_charging_percent', 0)}%")
+                    st.write(f"• **Grid Battery:** {scenario_data.get('optimization_params', {}).get('grid_battery_adoption_percent', 0)}%")
+                    st.write(f"• **V2G:** {scenario_data.get('optimization_params', {}).get('v2g_adoption_percent', 0)}%")
+                    st.write(f"• **AC Chargers:** {math.ceil(evs_per_substation)} chargers ({scenario_data['charging_power_kW']:.1f} kW each)")
+                    st.write(f"• **Total Charger Capacity:** {math.ceil(evs_per_substation) * scenario_data['charging_power_kW']:.1f} kW")
+                    
+                    # Comprehensive custom scenario summary
+                    st.write(f"**📈 General Data:**")
+                    st.write(f"• **Total Cars:** {total_cars_million:.1f}M")
+                    st.write(f"• **Total EVs:** {total_cars_million * scenario_data['ev_penetration']:.1f}M")
+                    st.write(f"• **EV Penetration:** {scenario_data['ev_penetration']*100:.0f}%")
+                    st.write(f"• **Home Charging:** {year_data.get('home_charging_percent', 0.8)*100:.0f}% ({total_cars_million * scenario_data['ev_penetration'] * year_data.get('home_charging_percent', 0.8):.1f}M EVs)")
+                    st.write(f"• **EVs per Substation:** {evs_per_substation:.2f}")
+                    
+                    # EV Configuration
+                    st.write(f"**🚗 EV Configuration:**")
+                    st.write(f"• **Battery Capacity:** {scenario_data['avg_battery_kWh']:.0f} kWh")
+                    st.write(f"• **Charging Power:** {scenario_data['charging_power_kW']:.1f} kW")
+                    st.write(f"• **Initial SOC:** {scenario_data.get('initial_soc', 0.2)*100:.0f}%")
+                    
+                    # Charger Configuration
+                    st.write(f"**🔌 Charger Configuration:**")
+                    st.write(f"• **AC Chargers:** {math.ceil(evs_per_substation)} chargers ({scenario_data['charging_power_kW']:.1f} kW each)")
+                    st.write(f"• **Total Charger Capacity:** {math.ceil(evs_per_substation) * scenario_data['charging_power_kW']:.1f} kW")
+                    
+                    # Smart Charging
+                    st.write(f"**🌙 Smart Charging:**")
+                    st.write(f"• **Smart Charging:** {scenario_data.get('optimization_params', {}).get('smart_charging_percent', 0):.0f}%")
+                    
+                    # PV + Battery System
+                    st.write(f"**☀️ PV + Battery System:**")
+                    st.write(f"• **PV + Battery Adoption:** {scenario_data.get('optimization_params', {}).get('pv_adoption_percent', 30)}%")
+                    st.write(f"• **Battery Capacity:** {scenario_data.get('optimization_params', {}).get('battery_capacity', 17.5)} kWh")
+                    st.write(f"• **Discharge Rate:** {scenario_data.get('optimization_params', {}).get('max_discharge_rate', 7.0)} kW")
+                    st.write(f"• **Solar Energy Available:** {scenario_data.get('optimization_params', {}).get('solar_energy_percent', 70)}%")
+                    
+                    # Grid-Charged Battery
+                    st.write(f"**🔋 Grid-Charged Battery (Normal Battery):**")
+                    st.write(f"• **Adoption:** {scenario_data.get('optimization_params', {}).get('grid_battery_adoption_percent', 0)}%")
+                    st.write(f"• **Capacity:** {scenario_data.get('optimization_params', {}).get('grid_battery_capacity', 20.0)} kWh")
+                    st.write(f"• **Max Rate:** {scenario_data.get('optimization_params', {}).get('grid_battery_max_rate', 5.0)} kW")
+                    st.write(f"• **Charge:** 7:00 for 8h")
+                    st.write(f"• **Discharge:** 18:00 for 4h")
+                    
+                    # V2G Section
+                    st.write(f"**🚗 Vehicle-to-Grid (V2G):**")
+                    st.write(f"• **Adoption:** {scenario_data.get('optimization_params', {}).get('v2g_adoption_percent', 0)}%")
+                    st.write(f"• **Discharge Rate:** {scenario_data['charging_power_kW']:.1f} kW (same as charging rate)")
+                    st.write(f"• **Discharge:** 18:00 for 3h")
+                    st.write(f"• **Recharge Arrival:** 02:00 next day (26:00)")
+                    
+                    st.write(f"**📝 Notes:** {year_data.get('notes', 'No notes')}")
+                else:
+                    st.warning("No custom scenarios available for this year.")
+            else:
+                st.info("No custom scenarios created yet. Use the 'Add Scenario' button below to create your first custom scenario.")
         
-        st.write(f"**📈 General Data:**")
-        st.write(f"• **Total Cars:** {total_cars_million:.1f}M")
-        st.write(f"• **Total EVs:** {total_evs_million:.1f}M")
-        st.write(f"• **EV Penetration:** {scenario_data['ev_penetration']*100:.0f}%")
-        st.write(f"• **Home Charging:** {home_charging_percent*100:.0f}% ({home_charged_evs_million:.1f}M EVs)")
-        st.write(f"• **EVs per Substation:** {evs_per_substation:.2f}")
-        
-        # --- EV Configuration (moved up) ---
-        st.write(f"**🚗 EV Configuration:**")
-        st.write(f"• **Battery Capacity:** {scenario_data['avg_battery_kWh']:.0f} kWh")
-        st.write(f"• **Charging Power:** {scenario_data['charging_power_kW']:.1f} kW")
-        st.write(f"• **Initial SOC:** 20%")
-        
-        # --- Charger Configuration (added) ---
-        st.write(f"**🔌 Charger Configuration:**")
-        st.write(f"• **AC Chargers:** {math.ceil(evs_per_substation)} chargers ({scenario_data['charging_power_kW']:.1f} kW each)")
-        st.write(f"• **Total Charger Capacity:** {math.ceil(evs_per_substation) * scenario_data['charging_power_kW']:.1f} kW")
-        
-        st.write(f"**🌙 Smart Charging:**")
-        st.write(f"• **Smart Charging:** {smart_charging_percent:.0f}%")
-        
-        st.write(f"**☀️ PV + Battery System:**")
-        st.write(f"• **PV + Battery Adoption:** {pv_adoption_percent:.0f}%")
-        st.write(f"• **Battery Capacity:** {battery_capacity:.1f} kWh")
-        st.write(f"• **Discharge Rate:** {discharge_rate:.1f} kW")
-        st.write(f"• **Solar Energy Available:** {solar_energy_percent:.0f}%")
-        
-        # --- Grid-Charged Battery (Normal Battery) Section ---
-        st.write(f"**🔋 Grid-Charged Battery (Normal Battery):**")
-        st.write(f"• **Adoption:** {grid_battery_adoption}%")
-        st.write(f"• **Capacity:** {grid_battery_capacity} kWh")
-        st.write(f"• **Max Rate:** {grid_battery_max_rate} kW")
-        st.write(f"• **Charge:** {grid_battery_charge_start_hour}:00 for {grid_battery_charge_duration}h")
-        st.write(f"• **Discharge:** {grid_battery_discharge_start_hour}:00 for {grid_battery_discharge_duration}h")
-        
-        # --- V2G Section ---
-        st.write(f"**🚗 Vehicle-to-Grid (V2G):**")
-        st.write(f"• **Adoption:** {v2g_adoption_percent}%")
-        st.write(f"• **Discharge Rate:** {v2g_discharge_rate:.1f} kW (same as charging rate)")
-        st.write(f"• **Discharge:** 20:00 for 3h")
-        st.write(f"• **Recharge Arrival:** 02:00 next day (26:00)")
-        
-        st.write(f"**📝 Notes:** {notes}")
-        
-        # Display temporary success message if exists (right after the button)
+        # Success message display
         if 'scenario_success_message' in st.session_state and 'scenario_success_timer' in st.session_state:
-            # Increment timer
+            st.success(st.session_state.scenario_success_message)
             st.session_state.scenario_success_timer += 1
             
-            # Show message for 2 seconds (assuming ~1 rerun per second)
-            if st.session_state.scenario_success_timer < 3:  # 2-3 reruns
-                st.success(st.session_state.scenario_success_message)
-            else:
-                # Clear the message after timer expires
+            # Clear the message after timer expires
+            if st.session_state.scenario_success_timer >= 3:
                 del st.session_state.scenario_success_message
                 del st.session_state.scenario_success_timer
 
-        # Custom scenario creation
+        # Add Scenario button - opens comprehensive scenario editor
         st.divider()
-        if st.button("➕ Create New Scenario", type="secondary"):
-            st.session_state.show_custom_scenario = True
+        if st.button("➕ Add Scenario", type="secondary"):
+            st.session_state.show_add_scenario = True
         
-        if st.session_state.get('show_custom_scenario', False):
-            st.write("**🔧 Create Custom Scenario:**")
+        if st.session_state.get('show_add_scenario', False):
+            st.write("**🔧 Add New Scenario:**")
+            st.caption("This will capture all current settings and create a new custom scenario.")
             
-            col1, col2 = st.columns(2)
+            # Scenario name input
+            new_scenario_name = st.text_input(
+                "Scenario Name",
+                value="my_scenario",
+                help="Name for your new scenario"
+            )
             
-            with col1:
-                custom_year = st.number_input(
-                    "Year",
-                    min_value=2020,
-                    max_value=2050,
-                    value=2030,
-                    help="Target year for the scenario"
-                )
-                
-                custom_name = st.text_input(
-                    "Scenario Name",
-                    value="custom",
-                    help="Name for your custom scenario (e.g., 'my_scenario')"
-                )
-                
-                custom_total_cars_million = st.number_input(
-                    "Total Cars (Million)",
-                    min_value=0.1,
-                    max_value=20.0,
-                    value=6.0,
-                    step=0.1,
-                    help="Total number of cars in millions"
-                )
+            new_scenario_year = st.number_input(
+                "Year",
+                min_value=2020,
+                max_value=2050,
+                value=2030,
+                help="Target year for the scenario"
+            )
             
-            with col2:
-                custom_penetration = st.slider(
-                    "EV Penetration (%)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=25.0,
-                    step=0.1,
-                    help="Percentage of total cars that are electric"
-                )
-                
-                custom_battery_kwh = st.number_input(
-                    "Average Battery Capacity (kWh)",
-                    min_value=10.0,
-                    max_value=200.0,
-                    value=75.0,
-                    step=1.0,
-                    help="Average battery capacity in kWh"
-                )
-                
-                custom_charging_power = st.number_input(
-                    "Average Charging Power (kW)",
-                    min_value=1.0,
-                    max_value=100.0,
-                    value=11.0,
-                    step=0.1,
-                    help="Average charging power in kW"
-                )
+            new_scenario_notes = st.text_area(
+                "Scenario Notes",
+                value="Custom scenario created from current settings",
+                help="Brief description or notes about this scenario"
+            )
             
-            # Add a third column for home charging parameters
-            col3 = st.columns(1)[0]
+            # Display current settings that will be captured
+            st.write("**📋 Current Settings to be Captured:**")
             
-            with col3:
-                custom_home_charging_percent = st.slider(
-                    "Home Charging (%)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=80.0,
-                    step=1.0,
-                    help="Percentage of EVs that charge at home"
-                )
-                
-                custom_notes = st.text_area(
-                    "Scenario Notes",
-                    value="Custom scenario with user-defined parameters",
-                    help="Brief description or notes about this scenario"
-                )
+            # Calculate EVs per substation for the scenario
+            current_peaks = st.session_state.get('time_peaks', [])
+            total_evs = sum(peak.get('quantity', 0) for peak in current_peaks)
+            substation_count = portugal_ev_scenarios['substation_count']
+            ev_penetration = total_evs / substation_count if substation_count > 0 else 0
             
-            # Calculate EVs per substation for custom scenario
-            custom_total_cars = custom_total_cars_million * 1_000_000
-            custom_total_evs_million = custom_total_cars_million * custom_penetration / 100
-            custom_home_charged_evs_million = custom_total_evs_million * custom_home_charging_percent / 100
-            custom_evs_per_substation = (custom_total_cars * custom_penetration / 100) / substation_count
+            # Comprehensive current settings summary
+            st.write("**📈 General Data:**")
+            st.write(f"• Total EVs: {total_evs}")
+            st.write(f"• EV Penetration: {ev_penetration*100:.1f}%")
+            st.write(f"• EVs per Substation: {ev_penetration:.2f}")
             
-            st.write(f"**📊 Custom Scenario Preview:**")
-            st.write(f"• **Year:** {custom_year}")
-            st.write(f"• **Name:** {custom_name}")
-            st.write(f"• **Total Cars:** {custom_total_cars_million:.1f}M")
-            st.write(f"• **Total EVs:** {custom_total_evs_million:.1f}M")
-            st.write(f"• **EV Penetration:** {custom_penetration:.1f}%")
-            st.write(f"• **Home Charging:** {custom_home_charging_percent:.0f}% ({custom_home_charged_evs_million:.1f}M EVs)")
-            st.write(f"• **Battery Capacity:** {custom_battery_kwh:.0f} kWh")
-            st.write(f"• **Charging Power:** {custom_charging_power:.1f} kW")
-            st.write(f"• **EVs per Substation:** {custom_evs_per_substation:.2f}")
-            st.write(f"• **Notes:** {custom_notes}")
+            # EV Configuration
+            st.write("**🚗 EV Configuration:**")
+            current_ev = st.session_state.get('dynamic_ev', {})
+            st.write(f"• Battery Capacity: {current_ev.get('capacity', 75)} kWh")
+            st.write(f"• Charging Power: {current_ev.get('AC', 11)} kW")
+            st.write(f"• Initial SOC: {st.session_state.get('ev_soc', 0.2)*100:.0f}%")
             
+            # Charger Configuration
+            st.write("**🔌 Charger Configuration:**")
+            current_charger = st.session_state.get('dynamic_charger', {})
+            st.write(f"• AC Rate: {current_charger.get('ac_rate', 11)} kW")
+            
+            # Optimization Strategies
+            st.write("**⚡ Optimization Strategies:**")
+            current_strategies = st.session_state.get('active_strategies', [])
+            if current_strategies:
+                for strategy in current_strategies:
+                    st.write(f"• {strategy.replace('_', ' ').title()}")
+            else:
+                st.write("• None active")
+            
+            # Strategy Parameters
+            current_optimization = st.session_state.get('optimization_strategy', {})
+            if current_optimization:
+                st.write("**🔧 Strategy Parameters:**")
+                if 'smart_charging_percent' in current_optimization:
+                    st.write(f"• Smart Charging: {current_optimization['smart_charging_percent']}%")
+                if 'pv_adoption_percent' in current_optimization:
+                    st.write(f"• PV + Battery Adoption: {current_optimization['pv_adoption_percent']}%")
+                if 'battery_capacity' in current_optimization:
+                    st.write(f"• Battery Capacity: {current_optimization['battery_capacity']} kWh")
+                if 'max_discharge_rate' in current_optimization:
+                    st.write(f"• Discharge Rate: {current_optimization['max_discharge_rate']} kW")
+                if 'solar_energy_percent' in current_optimization:
+                    st.write(f"• Solar Energy Available: {current_optimization['solar_energy_percent']}%")
+                if 'grid_battery_adoption_percent' in current_optimization:
+                    st.write(f"• Grid Battery Adoption: {current_optimization['grid_battery_adoption_percent']}%")
+                if 'grid_battery_capacity' in current_optimization:
+                    st.write(f"• Grid Battery Capacity: {current_optimization['grid_battery_capacity']} kWh")
+                if 'grid_battery_max_rate' in current_optimization:
+                    st.write(f"• Grid Battery Max Rate: {current_optimization['grid_battery_max_rate']} kW")
+                if 'v2g_adoption_percent' in current_optimization:
+                    st.write(f"• V2G Adoption: {current_optimization['v2g_adoption_percent']}%")
+                if 'v2g_max_discharge_rate' in current_optimization:
+                    st.write(f"• V2G Discharge Rate: {current_optimization['v2g_max_discharge_rate']} kW")
+            
+            # Time Peaks
+            st.write("**⏰ Time Control:**")
+            current_peaks = st.session_state.get('time_peaks', [])
+            if current_peaks:
+                for i, peak in enumerate(current_peaks):
+                    st.write(f"• Peak {i+1}: {peak.get('quantity', 0)} EVs, {peak.get('penetration_percent', 0)}% penetration")
+            else:
+                st.write("• No peaks configured")
+            
+            # Save and Cancel buttons
             col_save1, col_save2 = st.columns(2)
             
             with col_save1:
-                if st.button("💾 Save Custom Scenario", type="primary"):
+                if st.button("💾 Save Scenario", type="primary"):
                     # Initialize custom scenarios in session state if not exists
                     if 'custom_scenarios' not in st.session_state:
                         st.session_state.custom_scenarios = {}
                     
-                    # Add custom scenario
-                    if str(custom_year) not in st.session_state.custom_scenarios:
-                        st.session_state.custom_scenarios[str(custom_year)] = {
-                            'total_cars_million': custom_total_cars_million,
-                            'total_evs_million': custom_total_evs_million,
-                            'home_charging_percent': custom_home_charging_percent / 100,
-                            'home_charged_evs_million': custom_home_charged_evs_million,
-                            'notes': custom_notes,
+                    # Create year entry if not exists
+                    if str(new_scenario_year) not in st.session_state.custom_scenarios:
+                        st.session_state.custom_scenarios[str(new_scenario_year)] = {
+                            'total_cars_million': 6.0,  # Default value
+                            'total_evs_million': 1.5,   # Default value
+                            'home_charging_percent': 0.8,  # Default value
+                            'home_charged_evs_million': 1.2,  # Default value
+                            'notes': new_scenario_notes,
                             'scenarios': {}
                         }
                     
-                    st.session_state.custom_scenarios[str(custom_year)]['scenarios'][custom_name] = {
-                        'ev_penetration': custom_penetration / 100,
-                        'avg_battery_kWh': custom_battery_kwh,
-                        'charging_power_kW': custom_charging_power
+                    # Calculate EVs per substation for the scenario
+                    current_peaks = st.session_state.get('time_peaks', [])
+                    total_evs = sum(peak.get('quantity', 0) for peak in current_peaks)
+                    substation_count = portugal_ev_scenarios['substation_count']
+                    ev_penetration = total_evs / substation_count if substation_count > 0 else 0
+                    
+                    # Save the scenario with current settings
+                    st.session_state.custom_scenarios[str(new_scenario_year)]['scenarios'][new_scenario_name] = {
+                        'ev_penetration': ev_penetration,
+                        'avg_battery_kWh': current_ev.get('capacity', 75),
+                        'charging_power_kW': current_ev.get('AC', 11),
+                        'initial_soc': st.session_state.get('ev_soc', 0.2),
+                        'ac_rate': current_charger.get('ac_rate', 11),
+                        'active_strategies': current_strategies.copy(),
+                        'optimization_params': current_optimization.copy(),
+                        'time_peaks': current_peaks.copy(),
+                        'notes': new_scenario_notes
                     }
                     
-                    st.success(f"✅ Custom scenario '{custom_name}' for year {custom_year} saved!")
-                    st.session_state.show_custom_scenario = False
+                    st.success(f"✅ Scenario '{new_scenario_name}' for year {new_scenario_year} saved with all current settings!")
+                    st.session_state.show_add_scenario = False
                     st.rerun()
             
             with col_save2:
                 if st.button("❌ Cancel", type="secondary"):
-                    st.session_state.show_custom_scenario = False
+                    st.session_state.show_add_scenario = False
                     st.rerun()
 
     # Optimization Strategies
