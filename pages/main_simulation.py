@@ -933,8 +933,8 @@ with st.sidebar:
             
             # Show total adoption info
             total_adoption = sum(p['adoption'] for p in timeline['periods'])
-            if total_adoption > 100:
-                st.warning(f"⚠️ Total adoption is {total_adoption}% (exceeds 100%)")
+            if total_adoption > 100.01:
+                st.warning(f"⚠️ Total adoption is {total_adoption:.2f}% (exceeds 100%)")
             elif total_adoption < 100:
                 st.info(f"ℹ️ Total adoption is {total_adoption}% ({100 - total_adoption}% of users not using Time of Use)")
             else:
@@ -2536,14 +2536,14 @@ with col1:
                         
                         # Debug: Show the periods being used
                         period_info = [(p['name'], f"{p['start']}-{p['end']}h", f"{p['adoption']}%") for p in time_of_use_periods]
-                        st.info(f"🔍 TOU Periods: {period_info}")
+                        
                         
                         # Validate we have exactly 4 periods
                         if not validate_periods(time_of_use_periods):
                             st.error(f"❌ Invalid TOU periods. Expected 4 periods covering 24 hours, but got {len(time_of_use_periods)} periods.")
                             st.stop()
                         
-                        st.success(f"✅ Using {len(time_of_use_periods)} TOU periods for simulation")
+                        
                         
                         # Group periods by name for proper car distribution
                         period_groups = {}
