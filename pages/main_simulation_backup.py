@@ -2911,20 +2911,6 @@ with col1:
                                             pv_direct_support_curve[minute] += ev_grid_support_power
                                             adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
                 
-                                # Evening Phase: Battery discharge for this EV
-                                if ev_discharge_end_minute > 24 * 60:
-                                    # Discharging period extends beyond 24 hours, use absolute time
-                                    if (minute >= ev_discharge_start_minute and minute < ev_discharge_end_minute):
-                                        ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
-                                        pv_battery_discharge_curve[minute] += ev_discharge_power
-                                        adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
-                                else:
-                                    # Discharging period is within same day, use modulo logic
-                                    time_of_day = minute % (24 * 60)
-                                    if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
-                                        ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
-                                        pv_battery_discharge_curve[minute] += ev_discharge_power
-                                        adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
                 # Apply Grid-Charged Batteries optimization if enabled
                 grid_battery_charge_curve = np.zeros_like(grid_profile_full)
                 grid_battery_discharge_curve = np.zeros_like(grid_profile_full)
@@ -3451,80 +3437,7 @@ with col1:
         # Ensure y-axis shows both lines
         if results['grid_limit'] is not None and plot_grid_limit is not None and plot_original_grid_limit is not None:
             min_y = 0
-            
-            # Calculate maximum values including all battery effects
-            max_values = [np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve)]
-            
-            # Add battery effects to the maximum calculation
-            if show_battery_effects:
-                # PV direct system support
-                pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
-                if pv_direct_support is not None:
-                    pv_direct_support_plot = pv_direct_support[:max_plot_points]
-                    if smooth_graph:
-                        pv_direct_support_plot = pv_direct_support_plot[::10]
-                    max_values.append(np.max(plot_original_grid_limit + pv_direct_support_plot))
-                
-                # PV battery charging
-                pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
-                if pv_charge is not None:
-                    pv_charge_plot = pv_charge[:max_plot_points]
-                    if smooth_graph:
-                        pv_charge_plot = pv_charge_plot[::10]
-                    # Calculate base level for PV charging
-                    base_level = plot_original_grid_limit
-                    if pv_direct_support is not None:
-                        pv_direct_support_plot = pv_direct_support[:max_plot_points]
-                        if smooth_graph:
-                            pv_direct_support_plot = pv_direct_support_plot[::10]
-                        base_level = plot_original_grid_limit + pv_direct_support_plot
-                    max_values.append(np.max(base_level + pv_charge_plot))
-                
-                # Grid battery charging (reduces capacity, so check minimum)
-                grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
-                if grid_charge is not None:
-                    grid_charge_plot = grid_charge[:max_plot_points]
-                    if smooth_graph:
-                        grid_charge_plot = grid_charge_plot[::10]
-                    min_y = min(min_y, np.min(plot_original_grid_limit - grid_charge_plot))
-                
-                # Battery discharge effects (increases capacity)
-                pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
-                grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
-                v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
-                
-                combined_discharge = np.zeros_like(plot_original_grid_limit)
-                if pv_battery_discharge is not None:
-                    pv_discharge_plot = pv_battery_discharge[:max_plot_points]
-                    if smooth_graph:
-                        pv_discharge_plot = pv_discharge_plot[::10]
-                    combined_discharge += pv_discharge_plot
-                if grid_discharge is not None:
-                    grid_discharge_plot = grid_discharge[:max_plot_points]
-                    if smooth_graph:
-                        grid_discharge_plot = grid_discharge_plot[::10]
-                    combined_discharge += grid_discharge_plot
-                if v2g_discharge is not None:
-                    v2g_discharge_plot = v2g_discharge[:max_plot_points]
-                    if smooth_graph:
-                        v2g_discharge_plot = v2g_discharge_plot[::10]
-                    combined_discharge += v2g_discharge_plot
-                
-                if np.any(combined_discharge > 0):
-                    max_values.append(np.max(plot_original_grid_limit + combined_discharge))
-            
-            max_y = max(max_values) * 1.1
-            
-            # Safety checks to ensure reasonable y-axis limits
-            if max_y > 10000:  # If battery effects create extremely high values
-                max_y = max(max_values) * 1.05  # Reduce padding
-            if max_y < 100:  # If values are very low
-                max_y = max(max_values) * 1.2  # Increase padding for visibility
-            
-            # Ensure minimum range for visibility
-            if max_y - min_y < 50:
-                max_y = min_y + 50
-            
+            max_y = max(np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve)) * 1.1
             ax1.set_ylim(min_y, max_y)
         else:
             # Set y-axis limits based only on load curve if no grid data
@@ -3596,22 +3509,6 @@ with col1:
             
             # Set y-axis limits for bottom plot
             max_available = np.max(available_capacity_before_margin) * 1.1 if np.max(available_capacity_before_margin) > 0 else 100
-            
-            # Also consider margin capacity if it's being shown
-            if show_safety_margin:
-                margin_capacity = plot_adjusted_grid_limit - plot_grid_limit
-                max_available = max(max_available, np.max(margin_capacity) * 1.1)
-            
-            # Ensure minimum range for visibility
-            if max_available < 50:
-                max_available = 50
-            
-            # Safety checks to ensure reasonable y-axis limits
-            if max_available > 10000:  # If battery effects create extremely high values
-                max_available = np.max(available_capacity_before_margin) * 1.05  # Reduce padding
-            if max_available < 100:  # If values are very low
-                max_available = max(max_available, 100)  # Ensure minimum visibility
-            
             ax2.set_ylim(0, max_available)
             
             if show_legend:
@@ -3634,20 +3531,6 @@ with col1:
         
         st.pyplot(fig)
         
-        # Show info message if graph was auto-resized due to battery effects
-        if show_battery_effects and results['grid_limit'] is not None:
-            # Check if battery effects caused significant scaling
-            base_max = max(np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve))
-            actual_max = max_y / 1.1  # Remove the padding to get actual max
-            
-            if actual_max > base_max * 1.2:  # If battery effects increased the range by more than 20%
-                st.info("📊 **Graph Auto-Resized**: The graph view has been automatically adjusted to show all battery effects (charging and discharging). The y-axis range has been expanded to accommodate the full range of power values including battery operations.")
-            
-            # Check if bottom plot was also adjusted
-            base_available_max = np.max(plot_grid_limit - plot_load_curve) if len(plot_grid_limit) == len(plot_load_curve) else 0
-            actual_available_max = max_available / 1.1  # Remove the padding to get actual max
-            
-            
         # Display statistics under the graph
         st.header("📊 Performance Metrics")
         
