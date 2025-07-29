@@ -2456,29 +2456,29 @@ with col1:
                                                     # Calculate span (duration of the period)
                                                     span_hours = period['end'] - period['start']
                                                     span_minutes = span_hours * 60
-                                                    std_minutes = span_minutes / 4  # Standard deviation = span/4
+                                                    std_minutes = span_minutes / 2  # Standard deviation = span/4
                                                     
                                                     # Calculate charging duration to shift arrival times
                                                     ev_capacity = st.session_state.dynamic_ev.get('capacity', 75)
                                                     ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11)
                                                     charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
-                                                    charging_duration_minutes = charging_duration_hours / 2 * 60
+                                                    charging_duration_minutes = charging_duration_hours * 60
                                                     
                                                     # Shift center by 0.4x the charging duration (so EVs finish charging at center of period)
-                                                    shift_amount = charging_duration_minutes * 0.4
+                                                    shift_amount = charging_duration_minutes * 0.5
                                                     shifted_center_minutes = center_minutes - shift_amount
                                                     
                                                     # Generate arrival times for this period on this day
                                                     period_arrival_times = np.random.normal(shifted_center_minutes, std_minutes, period_evs)
                                                     
-                                                    # Handle negative times by wrapping to 48 - |negative_time| (same as single peak)
+                                                    # Add day offset first
+                                                    period_arrival_times += day_offset_minutes
+                                                    
+                                                    # Handle negative times by wrapping to 48-hour simulation boundary
                                                     for i in range(len(period_arrival_times)):
                                                         if period_arrival_times[i] < 0:
-                                                            # Wrap negative times to 48 - |negative_time|
+                                                            # Wrap negative times to 48 - |negative_time| (same as single peak)
                                                             period_arrival_times[i] = 48 * 60 + period_arrival_times[i]
-                                                    
-                                                    # Add day offset
-                                                    period_arrival_times += day_offset_minutes
                                                     
                                                     # Add to arrival times list
                                                     arrival_times.extend(period_arrival_times)
@@ -2511,7 +2511,16 @@ with col1:
                 
                 # Finalize arrival times (sort once)
                 arrival_times = np.array(arrival_times)
-                arrival_times = np.clip(arrival_times, 0, 48 * 60)  # Run for 48 hours, cars can spawn up to 48 hours
+                
+                # Handle clipping differently for TOU vs single peak
+                if time_of_use_enabled:
+                    # For TOU, allow times beyond 48 hours since we're simulating multiple days
+                    # Only clip negative times (which should have been handled already, but just in case)
+                    arrival_times = np.clip(arrival_times, 0, None)
+                else:
+                    # For single peak, clip to 48 hours as before
+                    arrival_times = np.clip(arrival_times, 0, 48 * 60)  # Run for 48 hours, cars can spawn up to 48 hours
+                
                 arrival_times.sort()
                 
                 # Add V2G recharge EVs to arrival times
@@ -3105,19 +3114,11 @@ with col1:
         x_labels = []
         
         for hour in range(0, max_hours + 1, 4):  # Every 4 hours
-            if hour == 0:
-                # Special case: 00--00 for hour 0
-                day = 0
-                hour_in_day = 0
-                x_labels.append(f"{day:02d}--{hour_in_day:02d}")
-            else:
-                day = (hour // 24) + 1
-                hour_in_day = hour % 24
-                if hour_in_day == 0:
-                    # Show 01--24 instead of 02--00
-                    day = day - 1
-                    hour_in_day = 24
-                x_labels.append(f"{day:02d}--{hour_in_day:02d}")
+            day = (hour // 24) + 1
+            hour_in_day = hour % 24
+            
+            # Format as "Day-Hour" (e.g., "01-00", "01-04", "01-08", ..., "02-00", "02-04")
+            x_labels.append(f"{day:02d}-{hour_in_day:02d}")
             x_ticks.append(hour)
         
         ax1.set_xticks(x_ticks)
