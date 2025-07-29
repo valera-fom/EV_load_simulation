@@ -610,19 +610,96 @@ def display_optimization_results(results, time_step, max_iterations):
         if period_name not in unique_periods:
             unique_periods[period_name] = period
     
+    # Calculate average capacity for each period from margin curve
+    period_avg_capacities = {}
+    step_duration_hours = time_step / 60.0
+    
+    for period_name, period in unique_periods.items():
+        # Get all margin curve values for this period across all its parts
+        period_margin_values = []
+        
+        print(f"🔍 DEBUG: Processing {period_name} - Period data: {period}")
+        
+        # Handle multi-part periods by collecting all steps from all parts
+        for day in range(2):  # 48 hours = 2 days
+            # Convert start/end hours to list of hours for this period
+            start_hour = period.get('start', 0)
+            end_hour = period.get('end', 24)
+            period_hours = list(range(start_hour, end_hour))
+            print(f"🔍 DEBUG: {period_name} - Day {day}, Start: {start_hour}, End: {end_hour}, Hours: {period_hours}")
+            
+            for hour in period_hours:
+                # Convert hour to step index for this day
+                day_hour = hour + (day * 24)
+                step_index = int(day_hour / step_duration_hours)
+                
+                print(f"🔍 DEBUG: {period_name} - Hour {hour} -> Day hour {day_hour} -> Step {step_index}")
+                
+                # Ensure index is within bounds
+                if 0 <= step_index < len(results['margin_curve']):
+                    margin_value = results['margin_curve'][step_index]
+                    period_margin_values.append(margin_value)
+                    print(f"🔍 DEBUG: {period_name} - Added margin value: {margin_value:.1f} kW")
+                else:
+                    print(f"🔍 DEBUG: {period_name} - Step {step_index} out of bounds (max: {len(results['margin_curve'])})")
+        
+        # Calculate average capacity for this period
+        if period_margin_values:
+            period_avg_capacities[period_name] = np.mean(period_margin_values)
+            print(f"🔍 DEBUG: {period_name} - Final average capacity: {period_avg_capacities[period_name]:.1f} kW from {len(period_margin_values)} values")
+        else:
+            period_avg_capacities[period_name] = 0
+            print(f"🔍 DEBUG: {period_name} - No margin values found, setting to 0")
+    
+    # Calculate simple percentages and apply them directly (no complex normalization)
+    capacity_weighted_values = {}
+    total_capacity_weighted = 0
+    
     for period_name, period in unique_periods.items():
         original_percentage = (results['period_results'][period_name] / total_points * 100) if total_points > 0 else 0
         avg_cars = period_averages.get(period_name, 0)
+        avg_capacity = period_avg_capacities.get(period_name, 0)
         
-        # Get the final normalized percentage (already calculated and applied above)
-        final_percentage = period.get('adoption', original_percentage)
+        # Calculate capacity-weighted percentage with power function to amplify the effect
+        capacity_weight = 2.0  # Weight factor - squaring the capacity for stronger effect
+        capacity_weighted = original_percentage * (avg_capacity ** capacity_weight) / (100.0 ** capacity_weight)  # Square the capacity
         
-        period_data.append({
-            'Period': period_name,
-            'Original %': f"{original_percentage:.1f}%",
-            'Avg Cars': f"{avg_cars:.1f}",
-            'Final %': f"{final_percentage:.1f}%"
-        })
+        print(f"🔍 DEBUG: {period_name} - Original: {original_percentage:.1f}%, Avg Capacity: {avg_capacity:.1f} kW, Squared: {(avg_capacity ** capacity_weight):.1f}, Weighted: {capacity_weighted:.1f}")
+        
+        capacity_weighted_values[period_name] = capacity_weighted
+        total_capacity_weighted += capacity_weighted
+    
+    # Initialize period_data list
+    period_data = []
+    
+    # Normalize capacity-weighted values to sum to 100%
+    if total_capacity_weighted > 0:
+        for period_name, capacity_weighted in capacity_weighted_values.items():
+            normalized_percentage = (capacity_weighted / total_capacity_weighted) * 100
+            
+            # Apply the normalized percentage to all periods with this name
+            for tou_period in tou_periods:
+                if tou_period['name'] == period_name:
+                    tou_period['adoption'] = round(normalized_percentage, 1)
+            
+            # Add to table data with the FINAL normalized percentage
+            period_data.append({
+                'Period': period_name,
+                'Percentages of Adoption': f"{normalized_percentage:.1f}%"
+            })
+    else:
+        # Fallback to original percentages if no capacity data
+        for period_name, period in unique_periods.items():
+            original_percentage = (results['period_results'][period_name] / total_points * 100) if total_points > 0 else 0
+            for tou_period in tou_periods:
+                if tou_period['name'] == period_name:
+                    tou_period['adoption'] = round(original_percentage, 1)
+            
+            # Add to table data with the fallback percentage
+            period_data.append({
+                'Period': period_name,
+                'Percentages of Adoption': f"{original_percentage:.1f}%"
+            })
     
     # Add total cars row
     total_cars = sum(results['cars_added_per_step'])
@@ -630,64 +707,21 @@ def display_optimization_results(results, time_step, max_iterations):
     total_cars_24h = total_cars // 2
     period_data.append({
         'Period': 'Total Cars',
-        'Original %': f"{total_cars_24h}",
-        'Avg Cars': '-',
-        'Final %': '-'
+        'Percentages of Adoption': f"{total_cars_24h}"
     })
     
     # Create DataFrame and display
     df = pd.DataFrame(period_data)
     st.write("**📊 Dynamic Optimization Results Table:**")
-    st.write("*Original %: Initial optimization percentages | Avg Cars: Average active cars per period | Final %: Normalized percentages after multiplying by average cars*")
+    st.write("*Percentages of Adoption: Final percentage applied to TOU fields (sums to 100%)*")
     st.dataframe(df, use_container_width=True)
-    
-    # Step 3: Apply new logic - multiply percentages by average cars and normalize
-    if tou_periods and period_averages:
-        # Calculate weighted percentages (only for unique periods)
-        weighted_percentages = {}
-        total_weighted = 0
-        
-        # Group periods by name to avoid duplicates
-        unique_periods = {}
-        for period in tou_periods:
-            period_name = period['name']
-            if period_name not in unique_periods:
-                unique_periods[period_name] = period
-        
-        for period_name, period in unique_periods.items():
-            if period_name in results['period_results']:
-                original_percentage = (results['period_results'][period_name] / total_points * 100) if total_points > 0 else 0
-                avg_cars = period_averages.get(period_name, 0)
-                
-                # Multiply percentage by average cars
-                weighted_percentage = original_percentage * avg_cars
-                weighted_percentages[period_name] = weighted_percentage
-                total_weighted += weighted_percentage
-        
-        # Normalize to sum to 100%
-        if total_weighted > 0:
-            # Update all periods with the same name
-            for period in tou_periods:
-                period_name = period['name']
-                if period_name in weighted_percentages:
-                    # Normalize: weighted_percentage / total_weighted * 100
-                    normalized_percentage = (weighted_percentages[period_name] / total_weighted) * 100
-                    period['adoption'] = round(normalized_percentage, 1)
-        else:
-            # Fallback to original calculation if no weighted data
-            for period in tou_periods:
-                period_name = period['name']
-                if period_name in results['period_results']:
-                    points = results['period_results'][period_name]
-                    percentage = (points / total_points * 100) if total_points > 0 else 0
-                    period['adoption'] = round(percentage, 1)
     
     # Display current optimization results if just completed
     if st.session_state.get('dynamic_optimization_just_completed', False):
         st.session_state.dynamic_optimization_just_completed = False
     
-    # Now apply the optimization results
-    # Update TOU periods with optimized percentages (already done above)
+    # Now apply the optimization results AFTER normalization is complete
+    # Update TOU periods with optimized percentages (now with final normalized values)
     tou_periods = st.session_state.optimization_strategy.get('time_of_use_periods', [])
     
     # Update the TOU periods in session state
@@ -707,9 +741,14 @@ def display_optimization_results(results, time_step, max_iterations):
         else:
             return data
     
+    # Store the FINAL normalized percentages instead of original period results
+    final_period_results = {}
+    for period in tou_periods:
+        final_period_results[period['name']] = period['adoption']
+    
     st.session_state.dynamic_optimization_results = {
         'total_cars': total_cars_24h,
-        'period_results': results['period_results'],
+        'period_results': final_period_results,  # Store final normalized values
         'tou_periods': tou_periods,
         'margin_curve': safe_tolist(results['margin_curve']),
         'final_load': safe_tolist(results['final_load']),
