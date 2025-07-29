@@ -15,6 +15,12 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
 - **Smart Car Distribution** - Automatic proportional splitting of EVs among multiple periods of the same type
 - **Real-time Adoption Rates** - Configurable adoption percentages for each period
 - **Cycling Buttons** - Quick period assignment with visual feedback
+- **🎯 Intelligent TOU Optimizer** - Automated period creation based on grid capacity analysis
+  - **24-Hour Analysis** - Optimizes periods based on first 24 hours of grid data
+  - **Capacity-Based Assignment** - Assigns periods based on available grid capacity levels
+  - **Automatic Merging** - Combines distributed periods of the same type for clean UI
+  - **Normalized Adoption** - Ensures total adoption equals 100% across all periods
+  - **Visual Optimization** - Shows capacity thresholds and period assignments
 
 ### 🔋 Advanced Charging Strategies
 - **PV + Battery System** - Solar charging during day, battery discharge during evening
@@ -65,6 +71,11 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
 - **Real-time Optimization** - Dynamic load balancing based on grid capacity
 - **Scenario Analysis** - Compare different adoption rates and strategies
 - **Export Results** - Save simulation data for further analysis
+- **🎯 TOU Optimization** - Automated period creation using the "Find Optimal TOU" button
+  - **Grid Data Analysis** - Analyzes available capacity from selected dataset or synthetic data
+  - **Capacity Thresholds** - Creates 4 equal capacity buckets for period assignment
+  - **Period Distribution** - Automatically assigns hours to optimal periods
+  - **Adoption Balancing** - Normalizes adoption percentages to total 100%
 
 ## Project Structure
 
@@ -72,7 +83,11 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
 EV_simulation/
 ├── pages/
 │   ├── main_simulation.py      # Main Streamlit application with ToU optimization
-│   └── vehicle_sandbox.py      # Vehicle testing and configuration interface
+│   ├── vehicle_sandbox.py      # Vehicle testing and configuration interface
+│   └── components/
+│       ├── tou_optimizer.py    # Intelligent TOU period optimization engine
+│       ├── capacity_analyzer.py # Grid capacity analysis utilities
+│       └── gradient_optimizer_ui.py # Advanced optimization interface
 ├── datasets/                   # Grid profile and historical data (not in repo)
 │   ├── df1.csv                # Grid data file 1
 │   ├── df2.csv                # Grid data file 2

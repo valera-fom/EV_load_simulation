@@ -2,11 +2,19 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-import math
-import os
+import seaborn as sns
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+from scipy import stats
+import warnings
 import sys
+import os
+import math
+import time
 import streamlit.components.v1 as components
+warnings.filterwarnings('ignore')
 
 # Add parent directory to path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,6 +23,12 @@ from sim_setup import SimulationSetup
 from EV import EV, EV_MODELS
 from charger import CHARGER_MODELS
 from pages.components.capacity_analyzer import find_max_cars_capacity
+# Import the new TOU optimizer
+from pages.components.tou_optimizer import (
+    optimize_tou_periods_24h, 
+    convert_to_simulation_format, 
+    validate_periods
+)
 # Import optimization components
 
 def _is_light_color(hex_color):
@@ -35,222 +49,6 @@ def _is_light_color(hex_color):
     luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     
     return luminance > 0.5
-
-def create_optimal_tou_periods(margin_curve):
-    """
-    Create optimal TOU periods based on capacity levels in the margin curve.
-    
-    Args:
-        margin_curve: List of capacity values over time (48 hours = 2880 minutes with 1-minute steps)
-    
-    Returns:
-        Dictionary with optimal TOU timeline structure
-    """
-    # Convert margin curve to hourly values (1-minute steps)
-    time_step_minutes = 1  # The margin curve has 1-minute steps
-    hours_in_simulation = len(margin_curve) * time_step_minutes // 60
-    
-    # Calculate hourly average capacity
-    hourly_capacity = []
-    for hour in range(hours_in_simulation):
-        start_idx = hour * 60  # 60 steps per hour (1-minute steps)
-        end_idx = min(start_idx + 60, len(margin_curve))
-        hour_avg = np.mean(margin_curve[start_idx:end_idx])
-        hourly_capacity.append(hour_avg)
-    
-    # Find capacity range
-    min_capacity = min(hourly_capacity)
-    max_capacity = max(hourly_capacity)
-    capacity_range = max_capacity - min_capacity
-    
-    # Create 4 equal capacity buckets
-    bucket_size = capacity_range / 4
-    capacity_thresholds = [
-        min_capacity + bucket_size,
-        min_capacity + 2 * bucket_size,
-        min_capacity + 3 * bucket_size,
-        max_capacity
-    ]
-    
-    # Assign each hour to a capacity bucket (limit to 48 hours to prevent third day spawning)
-    period_assignments = []
-    for hour in range(min(48, hours_in_simulation)):  # Limit to 48 hours maximum
-        capacity = hourly_capacity[hour]
-        if capacity <= capacity_thresholds[0]:
-            period_assignments.append(3)  # Peak (lowest capacity - red)
-        elif capacity <= capacity_thresholds[1]:
-            period_assignments.append(2)  # Mid-Peak (medium-low capacity - yellow)
-        elif capacity <= capacity_thresholds[2]:
-            period_assignments.append(1)  # Off-Peak (medium-high capacity - green)
-        else:
-            period_assignments.append(0)  # Super Off-Peak (highest capacity - blue)
-    
-    # Group consecutive hours into periods
-    # Align period names and colors with capacity assignments:
-    # 0 = Super Off-Peak (highest capacity - blue)
-    # 1 = Off-Peak (medium-high capacity - green) 
-    # 2 = Mid-Peak (medium-low capacity - yellow)
-    # 3 = Peak (lowest capacity - red)
-    period_names = ['Super Off-Peak', 'Off-Peak', 'Mid-Peak', 'Peak']
-    period_colors = ['#87CEEB', '#90EE90', '#FFD700', '#FF6B6B']
-    
-    # Initialize periods with empty hour lists
-    periods = []
-    for i, (name, color) in enumerate(zip(period_names, period_colors)):
-        hours = []
-        for hour, period_idx in enumerate(period_assignments):
-            if period_idx == i:
-                hours.append(hour + 1)  # Convert to 1-24 format
-        periods.append({
-            'name': name,
-            'color': color,
-            'adoption': 25,  # Default equal distribution
-            'hours': hours
-        })
-    
-    # Create and save visualization to session state (don't display immediately)
-    create_optimal_tou_visualization_save_only(margin_curve, hourly_capacity, period_assignments, period_names, period_colors, capacity_thresholds)
-    
-    return {
-        'periods': periods,
-        'selected_period': 0
-    }
-
-def create_optimal_tou_visualization_save_only(margin_curve, hourly_capacity, period_assignments, period_names, period_colors, capacity_thresholds):
-    """
-    Create a visualization showing the margin curve with horizontal color stripes for optimal TOU periods.
-    Only saves to session state, doesn't display immediately.
-    """
-    # Create the plot with full width (single plot, no subplots)
-    fig, ax = plt.subplots(1, 1, figsize=(16, 8))
-    
-    # Plot with 15-minute steps (first 24 hours = 96 steps)
-    time_step_minutes = 15
-    steps_per_hour = 60 // time_step_minutes  # 4 steps per hour
-    total_steps_24h = 24 * steps_per_hour  # 96 steps for 24 hours
-    
-    # Get margin curve data for first 24 hours (2880 minutes = 48 hours, take first 24 hours)
-    margin_curve_24h = margin_curve[:24*60]  # First 24 hours (1440 minutes)
-    
-    # Sample every 15 minutes (every 15th point since margin_curve has 1-minute steps)
-    margin_curve_15min = margin_curve_24h[::15]  # Take every 15th point
-    
-    # Create time axis for 15-minute steps
-    time_15min = np.arange(len(margin_curve_15min)) * time_step_minutes / 60  # Convert to hours
-    
-    ax.plot(time_15min, margin_curve_15min, 'b-', linewidth=4)
-    
-    # Add horizontal lines for capacity thresholds
-    for i, threshold in enumerate(capacity_thresholds):
-        ax.axhline(y=threshold, color='gray', linestyle='--', alpha=0.7, linewidth=2)
-    
-    # Color the background based on period assignments (map hourly periods to 15-min steps)
-    for hour, period_idx in enumerate(period_assignments[:24]):  # First 24 hours
-        color = period_colors[period_idx]
-        # Each hour spans 4 steps (15-min intervals)
-        start_step = hour * steps_per_hour
-        end_step = (hour + 1) * steps_per_hour
-        if end_step <= len(time_15min):
-            ax.axvspan(time_15min[start_step], time_15min[min(end_step, len(time_15min)-1)], alpha=0.3, color=color)
-    
-    ax.set_xlabel('Hour of Day', fontsize=24)
-    ax.set_ylabel('Available Capacity (kW)', fontsize=24)
-    ax.set_title('Optimal TOU Periods Based on Capacity Analysis (First 24 Hours, 15-min Resolution)', fontsize=28)
-    ax.set_xlim(0, 24)  # Set x-axis to 0-24 hours
-    ax.set_xticks(np.arange(0, 25, 4))  # Show every 4 hours: 0, 4, 8, 12, 16, 20, 24
-    ax.tick_params(axis='both', which='major', labelsize=20)  # Make tick labels bigger
-    ax.grid(True, alpha=0.3)
-    
-    # Add capacity range info as text on the plot
-    min_cap = min(hourly_capacity)
-    max_cap = max(hourly_capacity)
-    ax.text(0.02, 0.98, f'Capacity Range: {min_cap:.1f} - {max_cap:.1f} kW\nBucket Size: {(max_cap-min_cap)/4:.1f} kW', 
-            transform=ax.transAxes, fontsize=18, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    plt.tight_layout()
-    
-    # Save the figure to session state for persistence (don't display immediately)
-    st.session_state.optimal_tou_visualization = fig
-    
-    # Also save the period details for display
-    st.session_state.optimal_tou_period_details = []
-    period_counts_24 = [period_assignments[:24].count(i) for i in range(4)]
-    
-    # Define capacity ranges based on actual thresholds
-    capacity_ranges = [
-        (capacity_thresholds[2], max_cap),      # Super Off-Peak (0): highest capacity
-        (capacity_thresholds[1], capacity_thresholds[2]),  # Off-Peak (1): high capacity
-        (capacity_thresholds[0], capacity_thresholds[1]),  # Mid-Peak (2): low capacity
-        (min_cap, capacity_thresholds[0])       # Peak (3): lowest capacity
-    ]
-    
-    for i, (name, color, count) in enumerate(zip(period_names, period_colors, period_counts_24)):
-        if count > 0:
-            capacity_range_start, capacity_range_end = capacity_ranges[i]
-            st.session_state.optimal_tou_period_details.append({
-                'name': name,
-                'color': color,
-                'count': count,
-                'capacity_range_start': capacity_range_start,
-                'capacity_range_end': capacity_range_end,
-                'capacity_level': f"{'Lowest' if i==3 else 'Low' if i==2 else 'High' if i==1 else 'Highest'} capacity"
-            })
-
-def extract_margin_curve_from_current_data():
-    """
-    Extract margin curve from current grid data without running a simulation.
-    
-    Returns:
-        List of margin curve values or None if no data available
-    """
-    try:
-        # Get current configuration
-        available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
-        capacity_margin = min(0.95, available_load_fraction + 0.1)  # Add 0.1 but cap at 0.95
-        
-        # Check if we have synthetic data
-        if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
-            # Use synthetic data
-            power_values = st.session_state.synthetic_load_curve
-        elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
-            # Use real dataset
-            try:
-                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
-                selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
-                
-                # Filter data for selected date
-                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                day_data = df[df['date'].dt.date == selected_date]
-                
-                if not day_data.empty:
-                    power_values = day_data.iloc[:, 2].values
-                else:
-                    return None
-            except Exception as e:
-                st.error(f"Error reading dataset: {e}")
-                return None
-        else:
-            return None
-        
-        # Upsample 15-minute data to 1-minute intervals
-        margin_curve = np.repeat(power_values, 15).astype(float) * capacity_margin
-        
-        # Extend for 48 hours (2880 minutes)
-        sim_duration_min = 48 * 60  # 48 hours
-        
-        if len(margin_curve) < sim_duration_min:
-            # Repeat the profile to cover 48 hours
-            num_repeats = sim_duration_min // len(margin_curve) + 1
-            margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
-        else:
-            margin_curve = margin_curve[:sim_duration_min]
-        
-        return margin_curve.tolist()
-        
-    except Exception as e:
-        st.error(f"Error extracting margin curve: {e}")
-        return None
 
 # Portugal EV Scenarios dictionary
 portugal_ev_scenarios = {
@@ -1077,6 +875,17 @@ with st.sidebar:
                     timeline['periods'][2]['adoption'] = optimized_values.get('tou_midpeak', 25)        # Mid-Peak
                     timeline['periods'][3]['adoption'] = optimized_values.get('tou_peak', 25)          # Peak
                 
+                # Also update the simulation periods in optimization_strategy
+                if 'optimization_strategy' not in st.session_state:
+                    st.session_state.optimization_strategy = {}
+                
+                # Convert timeline periods to simulation format and store in optimization_strategy
+                simulation_periods = convert_to_simulation_format(timeline['periods'])
+                st.session_state.optimization_strategy['time_of_use_periods'] = simulation_periods
+                
+                # Debug: Show original timeline periods
+                st.info(f"🔍 Original Timeline Periods: {[(p['name'], len(p['hours']), p['hours'][:5] if p['hours'] else []) for p in timeline['periods']]}")
+                
                 # Clear the optimized values after applying them
                 del st.session_state.optimized_tou_values
             
@@ -1130,6 +939,14 @@ with st.sidebar:
                 st.info(f"ℹ️ Total adoption is {total_adoption}% ({100 - total_adoption}% of users not using Time of Use)")
             else:
                 st.success(f"✅ Total adoption is {total_adoption}%")
+            
+            # Ensure simulation periods are always updated in optimization_strategy
+            if 'optimization_strategy' not in st.session_state:
+                st.session_state.optimization_strategy = {}
+            
+            # Convert timeline periods to simulation format and store in optimization_strategy
+            simulation_periods = convert_to_simulation_format(timeline['periods'])
+            st.session_state.optimization_strategy['time_of_use_periods'] = simulation_periods
             
             # Add period legend in 2 columns (compressed)
             legend_col1, legend_col2 = st.columns(2)
@@ -1349,21 +1166,66 @@ with st.sidebar:
             
             with col2:
                 if st.button("🎯 Find Optimal TOU", type="secondary"):
+                    # Define the function inline to avoid NameError
+                    def extract_margin_curve_from_current_data():
+                        try:
+                            available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+                            capacity_margin = min(0.95, available_load_fraction + 0.1)
+                            
+                            if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+                                power_values = st.session_state.synthetic_load_curve
+                            elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
+                                try:
+                                    df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
+                                    selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
+                                    df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                                    day_data = df[df['date'].dt.date == selected_date]
+                                    
+                                    if not day_data.empty:
+                                        power_values = day_data.iloc[:, 2].values
+                                    else:
+                                        return None
+                                except Exception as e:
+                                    st.error(f"Error reading dataset: {e}")
+                                    return None
+                            else:
+                                return None
+                            
+                            margin_curve = np.repeat(power_values, 15).astype(float) * capacity_margin
+                            sim_duration_min = 48 * 60
+                            
+                            if len(margin_curve) < sim_duration_min:
+                                num_repeats = sim_duration_min // len(margin_curve) + 1
+                                margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
+                            else:
+                                margin_curve = margin_curve[:sim_duration_min]
+                            
+                            return margin_curve.tolist()
+                        except Exception as e:
+                            st.error(f"Error extracting margin curve: {e}")
+                            return None
+                    
                     # Extract margin curve directly from current grid data
                     margin_curve = extract_margin_curve_from_current_data()
                     
                     if margin_curve is not None:
-                        # Create optimal TOU periods based on capacity levels
-                        optimal_timeline = create_optimal_tou_periods(margin_curve)
+                        # Use the new TOU optimizer
+                        optimal_result = optimize_tou_periods_24h(margin_curve)
                         
                         # Update the timeline with optimal periods
-                        st.session_state.time_of_use_timeline = optimal_timeline
+                        st.session_state.time_of_use_timeline = {
+                            'periods': optimal_result['periods'],
+                            'selected_period': 0
+                        }
+                        
+                        # Store the visualization
+                        st.session_state.optimal_tou_visualization = optimal_result['visualization']
                         
                         # Clear any existing hour assignments
                         st.session_state.pop('hour_assignments', None)
                         st.session_state.pop('initial_timeline', None)
                         
-                        # st.success("✅ Optimal TOU periods created based on capacity analysis!")
+                        st.success("✅ Optimal TOU periods created based on 24-hour capacity analysis!")
                         st.rerun()
                     else:
                         st.error("❌ No grid data available. Please select a dataset or generate synthetic data first.")
@@ -1400,14 +1262,6 @@ with st.sidebar:
                         for period in timeline['periods']:
                             for hour in period['hours']:
                                 st.session_state.initial_timeline[hour] = period['name']
-
-                    
-                    # Initialize with stored initial values or current timeline
-                    st.session_state.hour_assignments = {}
-                    if 'initial_timeline' in st.session_state and st.session_state.initial_timeline:
-                        # Use stored initial values
-                        for hour, period_name in st.session_state.initial_timeline.items():
-                            st.session_state.hour_assignments[hour] = period_name
                     else:
                         # Use current timeline as initial values
                         for period in timeline['periods']:
@@ -2659,7 +2513,38 @@ with col1:
                     # Pre-calculate Time of Use peaks
                     time_of_use_periods = st.session_state.optimization_strategy.get('time_of_use_periods', [])
                     
+                    # Fallback: if no periods in optimization_strategy, use timeline
+                    if not time_of_use_periods and 'time_of_use_timeline' in st.session_state:
+                        timeline = st.session_state.time_of_use_timeline
+                        time_of_use_periods = convert_to_simulation_format(timeline['periods'])
+                        st.session_state.optimization_strategy['time_of_use_periods'] = time_of_use_periods
+                        st.info(f"🔧 Fallback: Converted {len(time_of_use_periods)} TOU periods from timeline")
+                    
+                    # Periods should already be in simulation format from the TOU configuration
                     if time_of_use_periods:
+                        # Verify conversion worked properly
+                        for period in time_of_use_periods:
+                            if 'start' not in period or 'end' not in period:
+                                st.error(f"❌ TOU period conversion failed for period: {period}")
+                                st.stop()
+                            
+                            # Validate period duration
+                            duration = period['end'] - period['start']
+                            if duration <= 0 or duration > 24:
+                                st.error(f"❌ Invalid TOU period duration: {duration} hours for period {period['name']} ({period['start']}-{period['end']})")
+                                st.stop()
+                        
+                        # Debug: Show the periods being used
+                        period_info = [(p['name'], f"{p['start']}-{p['end']}h", f"{p['adoption']}%") for p in time_of_use_periods]
+                        st.info(f"🔍 TOU Periods: {period_info}")
+                        
+                        # Validate we have exactly 4 periods
+                        if not validate_periods(time_of_use_periods):
+                            st.error(f"❌ Invalid TOU periods. Expected 4 periods covering 24 hours, but got {len(time_of_use_periods)} periods.")
+                            st.stop()
+                        
+                        st.success(f"✅ Using {len(time_of_use_periods)} TOU periods for simulation")
+                        
                         # Group periods by name for proper car distribution
                         period_groups = {}
                         for period in time_of_use_periods:
@@ -3647,7 +3532,7 @@ with col1:
             base_available_max = np.max(plot_grid_limit - plot_load_curve) if len(plot_grid_limit) == len(plot_load_curve) else 0
             actual_available_max = max_available / 1.1  # Remove the padding to get actual max
             
-            
+        
         # Display statistics under the graph
         st.header("📊 Performance Metrics")
         
@@ -3895,3 +3780,65 @@ with col2:
         st.write("• Peak demand analysis")
 
             # Check if we have valid data
+
+# Import the new TOU optimizer
+from pages.components.tou_optimizer import (
+    optimize_tou_periods_24h, 
+    convert_to_simulation_format, 
+    validate_periods
+)
+
+def extract_margin_curve_from_current_data():
+    """
+    Extract margin curve from current grid data without running a simulation.
+    
+    Returns:
+        List of margin curve values or None if no data available
+    """
+    try:
+        # Get current configuration
+        available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+        capacity_margin = min(0.95, available_load_fraction + 0.1)  # Add 0.1 but cap at 0.95
+        
+        # Check if we have synthetic data
+        if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+            # Use synthetic data
+            power_values = st.session_state.synthetic_load_curve
+        elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
+            # Use real dataset
+            try:
+                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
+                selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
+                
+                # Filter data for selected date
+                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                day_data = df[df['date'].dt.date == selected_date]
+                
+                if not day_data.empty:
+                    power_values = day_data.iloc[:, 2].values
+                else:
+                    return None
+            except Exception as e:
+                st.error(f"Error reading dataset: {e}")
+                return None
+        else:
+            return None
+        
+        # Upsample 15-minute data to 1-minute intervals
+        margin_curve = np.repeat(power_values, 15).astype(float) * capacity_margin
+        
+        # Extend for 48 hours (2880 minutes)
+        sim_duration_min = 48 * 60  # 48 hours
+        
+        if len(margin_curve) < sim_duration_min:
+            # Repeat the profile to cover 48 hours
+            num_repeats = sim_duration_min // len(margin_curve) + 1
+            margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
+        else:
+            margin_curve = margin_curve[:sim_duration_min]
+        
+        return margin_curve.tolist()
+        
+    except Exception as e:
+        st.error(f"Error extracting margin curve: {e}")
+        return None
