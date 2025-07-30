@@ -10,12 +10,13 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 
-def optimize_tou_periods_24h(margin_curve: List[float]) -> Dict:
+def optimize_tou_periods_24h(margin_curve: List[float], num_periods: int = 4) -> Dict:
     """
     Create optimal TOU periods based on capacity levels for exactly 24 hours.
     
     Args:
         margin_curve: List of capacity values over time (1-minute steps)
+        num_periods: Number of TOU periods (2-5)
     
     Returns:
         Dictionary with optimal TOU timeline structure for 24 hours
@@ -36,31 +37,41 @@ def optimize_tou_periods_24h(margin_curve: List[float]) -> Dict:
     max_capacity = max(hourly_capacity)
     capacity_range = max_capacity - min_capacity
     
-    # Create 4 equal capacity buckets
-    bucket_size = capacity_range / 4
-    capacity_thresholds = [
-        min_capacity + bucket_size,
-        min_capacity + 2 * bucket_size,
-        min_capacity + 3 * bucket_size,
-        max_capacity
-    ]
+    # Create equal capacity buckets based on number of periods
+    bucket_size = capacity_range / num_periods
+    capacity_thresholds = []
+    for i in range(num_periods - 1):
+        capacity_thresholds.append(min_capacity + (i + 1) * bucket_size)
+    capacity_thresholds.append(max_capacity)
     
-    # Assign each hour to a capacity bucket (0-3)
+    # Assign each hour to a capacity bucket
+    # Higher capacity → Period 1, Lower capacity → Last period
     period_assignments = []
     for hour in range(24):
         capacity = hourly_capacity[hour]
-        if capacity <= capacity_thresholds[0]:
-            period_assignments.append(3)  # Peak (lowest capacity)
-        elif capacity <= capacity_thresholds[1]:
-            period_assignments.append(2)  # Mid-Peak
-        elif capacity <= capacity_thresholds[2]:
-            period_assignments.append(1)  # Off-Peak
-        else:
-            period_assignments.append(0)  # Super Off-Peak (highest capacity)
+        assigned = False
+        for i, threshold in enumerate(capacity_thresholds):
+            if capacity <= threshold:
+                # Reverse the assignment: lowest threshold → highest period number
+                period_assignments.append(num_periods - 1 - i)
+                assigned = True
+                break
+        if not assigned:
+            period_assignments.append(0)  # Assign to Period 1 (highest capacity)
     
     # Create periods with consecutive hour ranges
-    period_names = ['Super Off-Peak', 'Off-Peak', 'Mid-Peak', 'Peak']
-    period_colors = ['#87CEEB', '#90EE90', '#FFD700', '#FF6B6B']
+    if num_periods == 2:
+        period_names = ['Period 1', 'Period 2']
+        period_colors = ['#87CEEB', '#90EE90']
+    elif num_periods == 3:
+        period_names = ['Period 1', 'Period 2', 'Period 3']
+        period_colors = ['#87CEEB', '#90EE90', '#FFD700']
+    elif num_periods == 5:
+        period_names = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5']
+        period_colors = ['#87CEEB', '#90EE90', '#FFD700', '#FF6B6B', '#9370DB']
+    else:  # 4 periods
+        period_names = ['Period 1', 'Period 2', 'Period 3', 'Period 4']
+        period_colors = ['#87CEEB', '#90EE90', '#FFD700', '#FF6B6B']
     
     periods = []
     for period_idx, (name, color) in enumerate(zip(period_names, period_colors)):
@@ -68,62 +79,44 @@ def optimize_tou_periods_24h(margin_curve: List[float]) -> Dict:
         period_hours = [hour + 1 for hour, assignment in enumerate(period_assignments) if assignment == period_idx]
         
         if period_hours:
-            # Group consecutive hours into ranges
-            ranges = _group_consecutive_hours(period_hours)
-            
-            # Create one period per range, but track total hours for adoption calculation
-            total_hours_for_period = len(period_hours)
-            adoption_per_period = 25  # Default equal distribution
-            
-            for start_hour, end_hour in ranges:
-                periods.append({
-                    'name': name,
-                    'color': color,
-                    'adoption': adoption_per_period,  # Will be adjusted later
-                    'hours': list(range(start_hour, end_hour)),
-                    'total_hours': total_hours_for_period  # Track total hours for this TOU type
-                })
+            # Create one period with all hours for this period type
+            periods.append({
+                'name': name,
+                'color': color,
+                'adoption': 100.0 / num_periods,  # Equal distribution based on num_periods
+                'hours': period_hours,
+                'total_hours': len(period_hours)
+            })
         else:
             # If no hours assigned, create a default period
             periods.append({
                 'name': name,
                 'color': color,
-                'adoption': 25,
+                'adoption': 100.0 / num_periods,
                 'hours': [1, 2, 3, 4, 5, 6],  # Default 6 hours
                 'total_hours': 6
             })
     
-    # Merge periods of the same type and adjust adoption percentages
-    merged_periods = []
-    seen_names = set()
-    
+    # Ensure equal adoption percentages for all periods
+    equal_adoption = 100.0 / len(periods)
     for period in periods:
-        if period['name'] not in seen_names:
-            # First occurrence of this TOU type
-            merged_periods.append(period)
-            seen_names.add(period['name'])
-        else:
-            # Merge with existing period of same name
-            existing_period = next(p for p in merged_periods if p['name'] == period['name'])
-            # Combine hours
-            existing_period['hours'].extend(period['hours'])
-            existing_period['hours'] = sorted(list(set(existing_period['hours'])))  # Remove duplicates
-            # Average the adoption percentages
-            existing_period['adoption'] = (existing_period['adoption'] + period['adoption']) / 2
+        period['adoption'] = equal_adoption
     
-    # Ensure total adoption is 100%
-    total_adoption = sum(p['adoption'] for p in merged_periods)
-    if total_adoption != 100:
-        # Normalize adoption percentages
-        for period in merged_periods:
-            period['adoption'] = (period['adoption'] / total_adoption) * 100
+    # Debug output to verify equal adoption percentages
+    print(f"🔍 TOU Optimizer Debug - {num_periods} periods:")
+    print(f"  Equal adoption percentage: {equal_adoption:.2f}%")
+    print(f"  Capacity thresholds: {capacity_thresholds}")
+    print(f"  Period assignments: {period_assignments}")
+    print(f"  Period assignment counts: {[period_assignments.count(i) for i in range(num_periods)]}")
+    for period in periods:
+        print(f"  {period['name']}: {period['adoption']:.2f}%")
     
     # Create visualization
     fig = _create_optimization_visualization(margin_curve_24h, hourly_capacity, period_assignments, 
                                            period_names, period_colors, capacity_thresholds)
     
     return {
-        'periods': merged_periods,
+        'periods': periods,
         'selected_period': 0,
         'visualization': fig,
         'capacity_thresholds': capacity_thresholds,
@@ -235,7 +228,7 @@ def convert_to_simulation_format(periods: List[Dict]) -> List[Dict]:
                     'adoption': period['adoption']
                 })
     
-    # Ensure exactly 4 periods by merging duplicates
+    # Ensure correct number of periods by merging duplicates
     unique_periods = []
     seen_names = set()
     
@@ -248,24 +241,42 @@ def convert_to_simulation_format(periods: List[Dict]) -> List[Dict]:
             existing = next(p for p in unique_periods if p['name'] == period['name'])
             existing['start'] = min(existing['start'], period['start'])
             existing['end'] = max(existing['end'], period['end'])
-            existing['adoption'] = (existing['adoption'] + period['adoption']) / 2
+            # Keep the original adoption percentage (don't average)
+    
+    # Apply equal adoption percentages to ensure consistency
+    if unique_periods:
+        equal_adoption = 100.0 / len(unique_periods)
+        for period in unique_periods:
+            period['adoption'] = equal_adoption
     
     return unique_periods
 
-def validate_periods(periods: List[Dict]) -> bool:
+def validate_periods(periods: List[Dict], num_periods: int = 4) -> bool:
     """
     Validate that periods are correct for simulation.
     
     Args:
         periods: List of periods to validate
+        num_periods: Expected number of periods (2-5)
     
     Returns:
         True if valid, False otherwise
     """
-    if len(periods) < 4:
+    if len(periods) != num_periods:
         return False
     
-    expected_names = {'Super Off-Peak', 'Off-Peak', 'Mid-Peak', 'Peak'}
+    # Define expected names based on number of periods
+    if num_periods == 2:
+        expected_names = {'Period 1', 'Period 2'}
+    elif num_periods == 3:
+        expected_names = {'Period 1', 'Period 2', 'Period 3'}
+    elif num_periods == 4:
+        expected_names = {'Period 1', 'Period 2', 'Period 3', 'Period 4'}
+    elif num_periods == 5:
+        expected_names = {'Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5'}
+    else:
+        return False
+    
     actual_names = {p['name'] for p in periods}
     
     if actual_names != expected_names:

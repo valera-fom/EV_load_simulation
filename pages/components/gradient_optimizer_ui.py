@@ -130,6 +130,11 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
     data_source = st.session_state.get('data_source', 'Real Dataset')
     power_values = st.session_state.get('power_values', None)
     
+    # Debug output for TOU periods
+    print(f"🔍 Dynamic Optimizer Debug - {len(tou_periods)} TOU periods:")
+    for period in tou_periods:
+        print(f"  {period['name']}: {period['start']}-{period['end']}h, {period['adoption']:.1f}%")
+    
     # Handle data loading/generation (EXACTLY like main simulation)
     if data_source == "Synthetic Generation":
         if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None and len(st.session_state.synthetic_load_curve) > 0:
@@ -784,16 +789,46 @@ def display_optimization_results(results, time_step, max_iterations):
     }
     
     # Store optimized TOU values in session state (like Bayesian optimizer)
+    # Use equal adoption percentages for all periods
     optimized_tou_values = {}
+    equal_adoption = 100.0 / len(tou_periods)
+    
+    # Debug output to verify equal adoption percentages
+    print(f"🔍 Gradient Optimizer UI Debug - {len(tou_periods)} periods:")
+    print(f"  Equal adoption percentage: {equal_adoption:.2f}%")
+    
+    # Create a flexible mapping system that works with any number of periods
+    period_mapping = {
+        'Period 1': 'tou_super_offpeak',
+        'Period 2': 'tou_offpeak', 
+        'Period 3': 'tou_midpeak',
+        'Period 4': 'tou_peak',
+        'Period 5': 'tou_peak'  # Map Period 5 to peak for compatibility
+    }
+    
+    # Map each period to its corresponding optimization parameter
     for period in tou_periods:
-        if period['name'] == 'Super Off-Peak':
-            optimized_tou_values['tou_super_offpeak'] = period['adoption']
-        elif period['name'] == 'Off-Peak':
-            optimized_tou_values['tou_offpeak'] = period['adoption']
-        elif period['name'] == 'Mid-Peak':
-            optimized_tou_values['tou_midpeak'] = period['adoption']
-        elif period['name'] == 'Peak':
-            optimized_tou_values['tou_peak'] = period['adoption']
+        period_name = period['name']
+        if period_name in period_mapping:
+            param_name = period_mapping[period_name]
+            optimized_tou_values[param_name] = equal_adoption
+            print(f"  {period_name} -> {param_name}: {equal_adoption:.2f}%")
+        else:
+            print(f"  Warning: Unknown period name '{period_name}'")
+    
+    # Ensure we don't have duplicate mappings that could cause unequal distribution
+    # For 2-3 periods, remove unused mappings
+    if len(tou_periods) == 2:
+        # For 2 periods, only use the first two mappings
+        for key in ['tou_midpeak', 'tou_peak']:
+            if key in optimized_tou_values:
+                del optimized_tou_values[key]
+    elif len(tou_periods) == 3:
+        # For 3 periods, only use the first three mappings
+        if 'tou_peak' in optimized_tou_values:
+            del optimized_tou_values['tou_peak']
+    
+    print(f"  Final optimized_tou_values: {optimized_tou_values}")
     
     st.session_state.optimized_tou_values = optimized_tou_values
     

@@ -218,7 +218,7 @@ class GradientOptimizer:
                 print(f"  🎯 Rewards: RMSE={rmse_reward:.1f}, Shape={shape_reward:.1f}, Util={utilization_reward:.1f}, TOU_Bonus={tou_scaling_bonus:.1f}")
                 print(f"  ⚠️ Penalties: Violations={violation_penalty:.1f}, LowUtil={low_utilization_penalty:.1f}, PoorShape={poor_shape_penalty:.1f}")
                 print(f"  📈 Total TOU: {total_tou:.1f}% (Effective cars: {total_tou/100*25:.0f})")
-                print(f"  ⚙️ TOU: Super={params.get('tou_super_offpeak_adoption', 0):.1f}, Off={params.get('tou_offpeak_adoption', 0):.1f}, Mid={params.get('tou_midpeak_adoption', 0):.1f}, Peak={params.get('tou_peak_adoption', 0):.1f}")
+                print(f"  ⚙️ TOU: Period1={params.get('tou_super_offpeak_adoption', 0):.1f}, Period2={params.get('tou_offpeak_adoption', 0):.1f}, Period3={params.get('tou_midpeak_adoption', 0):.1f}, Period4={params.get('tou_peak_adoption', 0):.1f}")
                 if self._iteration_count <= 5:
                     print(f"  " + "="*50)
             
@@ -319,10 +319,10 @@ class GradientOptimizer:
         """
         print(f"🚀 Starting Gradient-based optimization ({self.n_iterations} iterations)")
         
-        # Initialize parameters (start with reasonable values)
+        # Initialize parameters (start with equal values)
         current_params = {}
         for param_name, (min_val, max_val) in self.parameter_bounds.items():
-            # Start with 25% for each TOU parameter (reasonable starting point)
+            # Start with 25% for each TOU parameter (equal starting point)
             current_params[param_name] = 25.0
         
         # Evaluate initial point
@@ -372,7 +372,7 @@ class GradientOptimizer:
             # Print progress (less frequent)
             if iteration % 10 == 0 or iteration == self.n_iterations - 1:
                 print(f"📊 Iteration {iteration + 1}/{self.n_iterations}: Reward = {reward:.3f}, Best = {self.best_reward:.3f}")
-                print(f"  ⚙️ TOU: Super={current_params.get('tou_super_offpeak_adoption', 0):.1f}, Off={current_params.get('tou_offpeak_adoption', 0):.1f}, Mid={current_params.get('tou_midpeak_adoption', 0):.1f}, Peak={current_params.get('tou_peak_adoption', 0):.1f}")
+                print(f"  ⚙️ TOU: Period1={current_params.get('tou_super_offpeak_adoption', 0):.1f}, Period2={current_params.get('tou_offpeak_adoption', 0):.1f}, Period3={current_params.get('tou_midpeak_adoption', 0):.1f}, Period4={current_params.get('tou_peak_adoption', 0):.1f}")
             
             if progress_callback:
                 progress_callback(iteration, self.n_iterations, self.best_reward)
@@ -390,29 +390,47 @@ class GradientOptimizer:
             'n_iterations': self.n_iterations
         }
 
-def create_gradient_optimizer() -> GradientOptimizer:
-    """Create a Gradient-based optimizer with parameter bounds."""
+def create_gradient_optimizer(num_periods: int = 4) -> GradientOptimizer:
+    """Create a Gradient-based optimizer with parameter bounds for the specified number of periods."""
     
     # Parameter bounds (only TOU parameters, no car_count)
-    parameter_bounds = {
-        'tou_super_offpeak_adoption': (10, 40),   # Super off-peak can be higher
-        'tou_offpeak_adoption': (15, 45),        # Off-peak can be higher
-        'tou_midpeak_adoption': (10, 35),         # Mid-peak moderate
-        'tou_peak_adoption': (5, 25)             # Peak should be lower
+    # Use equal bounds for all periods to ensure equal adoption percentages
+    # The bounds are set to ensure the optimizer searches within an equal distribution range
+    
+    # Define parameter mappings for different numbers of periods
+    period_parameters = {
+        'Period 1': 'tou_super_offpeak_adoption',
+        'Period 2': 'tou_offpeak_adoption',
+        'Period 3': 'tou_midpeak_adoption', 
+        'Period 4': 'tou_peak_adoption',
+        'Period 5': 'tou_peak_adoption'  # Map Period 5 to peak for compatibility
     }
+    
+    # Create parameter bounds based on the number of periods
+    parameter_bounds = {}
+    for i in range(1, min(num_periods + 1, 6)):  # Support up to 5 periods
+        period_name = f'Period {i}'
+        if period_name in period_parameters:
+            param_name = period_parameters[period_name]
+            parameter_bounds[param_name] = (20, 30)  # Equal bounds for all periods
+    
+    print(f"🔍 Gradient Optimizer Debug - Creating optimizer for {num_periods} periods:")
+    print(f"  Parameter bounds: {parameter_bounds}")
     
     return GradientOptimizer(parameter_bounds)
 
 if __name__ == "__main__":
-    # Test the Gradient Optimizer
-    optimizer = create_gradient_optimizer()
-    print(f"✅ Gradient Optimizer created with {optimizer.n_parameters} parameters")
-    
-    # Example simulation function (placeholder)
-    def test_simulation(params):
-        # Placeholder - would be replaced with actual simulation
-        return np.random.normal(100, 20, 2880)  # 48-hour load curve
-    
-    # Run optimization
-    results = optimizer.optimize(test_simulation, n_iterations=5)
-    print(f"🎯 Best parameters: {results['best_parameters']}") 
+    # Test the Gradient Optimizer with different numbers of periods
+    for num_periods in [2, 3, 4, 5]:
+        print(f"\n🔍 Testing Gradient Optimizer with {num_periods} periods:")
+        optimizer = create_gradient_optimizer(num_periods)
+        print(f"✅ Gradient Optimizer created with {optimizer.n_parameters} parameters")
+        
+        # Example simulation function (placeholder)
+        def test_simulation(params):
+            # Placeholder - would be replaced with actual simulation
+            return np.random.normal(100, 20, 2880)  # 48-hour load curve
+        
+        # Run optimization
+        results = optimizer.optimize(test_simulation, n_iterations=5)
+        print(f"🎯 Best parameters: {results['best_parameters']}") 

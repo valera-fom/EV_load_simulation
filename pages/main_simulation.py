@@ -378,7 +378,10 @@ with st.sidebar:
                 
                 with col1:
                     def update_peak_name(i=i):
-                        st.session_state.time_peaks[i]['name'] = st.session_state[f"peak_name_{i}"]
+                        # Check if the session state key exists before accessing it
+                        key = f"peak_name_{i}"
+                        if key in st.session_state:
+                            st.session_state.time_peaks[i]['name'] = st.session_state[key]
                         
                     
                     new_name = st.text_input("Peak Name", value=str(peak.get('name', f'Peak {i+1}')), key=f"peak_name_{i}", on_change=update_peak_name)
@@ -390,7 +393,10 @@ with st.sidebar:
                     new_span = st.slider("Time Span (1σ in hours)", min_value=0.5, max_value=12.0, value=span_value, step=0.5, key=f"peak_span_{i}", help="Spread of arrival times (1 standard deviation)")
                     
                     def update_peak_quantity(i=i):
-                        st.session_state.time_peaks[i]['quantity'] = st.session_state[f"peak_quantity_{i}"]
+                        # Check if the session state key exists before accessing it
+                        key = f"peak_quantity_{i}"
+                        if key in st.session_state:
+                            st.session_state.time_peaks[i]['quantity'] = st.session_state[key]
                     
                     new_quantity = st.number_input("EV Quantity", min_value=0, max_value=1000, value=int(peak.get('quantity', 5)), key=f"peak_quantity_{i}", on_change=update_peak_quantity)
                 
@@ -999,28 +1005,143 @@ with st.sidebar:
             st.write("**⚡ Time of Use Configuration:**")
             st.write("Configure different charging periods with varying adoption rates based on time-of-use tariffs.")
             
+            # Add toggles for number of TOU periods
+            st.info("💡 **Period Options:** 2 periods (simple), 3 periods (balanced), 4 periods (detailed), 5 periods (comprehensive)")
+            if 'tou_period_count' not in st.session_state:
+                st.session_state.tou_period_count = 4
+            
+            st.write("**Number of TOU Periods:**")
+            
+            # Use radio buttons for mutually exclusive selection
+            num_periods = st.radio(
+                "Select number of periods:",
+                options=[2, 3, 4, 5],
+                index=[2, 3, 4, 5].index(st.session_state.tou_period_count) if st.session_state.tou_period_count in [2, 3, 4, 5] else 2,
+                horizontal=True,
+                key="tou_period_selector",
+                help="Choose the number of TOU periods for optimization"
+            )
+            
+            # Update session state if changed
+            if num_periods != st.session_state.tou_period_count:
+                print(f"🔄 TOU Period Count Changed: {st.session_state.tou_period_count} -> {num_periods}")
+                st.session_state.tou_period_count = num_periods
+                # Reset timeline to force regeneration with new period count
+                if 'time_of_use_timeline' in st.session_state:
+                    del st.session_state.time_of_use_timeline
+                st.rerun()
+            
+            # Function to merge periods based on selected count
+            def merge_periods(periods, target_count):
+                if target_count == 5:
+                    # For 5 periods, add a new Period 5 with equal distribution
+                    # Keep the original 4 periods but add a new one
+                    new_periods = periods.copy()
+                    # Add Period 5 with some default hours (e.g., late night)
+                    new_periods.append({
+                        'name': 'Period 5',
+                        'color': '#9370DB',  # Purple color for Period 5
+                        'adoption': 100.0 / 5,
+                        'hours': [23, 24]  # Late night hours
+                    })
+                    # Apply equal adoption percentages for all 5 periods
+                    equal_adoption = 100.0 / 5
+                    for period in new_periods:
+                        period['adoption'] = equal_adoption
+                    return new_periods
+                elif target_count == 4:
+                    # Apply equal adoption percentages for 4 periods
+                    equal_adoption = 100.0 / 4
+                    for period in periods:
+                        period['adoption'] = equal_adoption
+                    return periods
+                elif target_count == 3:
+                    # Preserve first (left) two periods and merge last (right) two periods
+                    merged_periods = periods[:2]  # Keep Period 1 and Period 2
+                    merged_hours = periods[2]['hours'] + periods[3]['hours']
+                    merged_periods.append({
+                        'name': 'Period 3',
+                        'color': '#FFD700',  # Keep Period 3 color
+                        'adoption': 100.0 / 3,  # Equal adoption for 3 periods
+                        'hours': merged_hours
+                    })
+                    
+                    # Apply equal adoption percentages
+                    equal_adoption = 100.0 / 3
+                    for period in merged_periods:
+                        period['adoption'] = equal_adoption
+                    
+                    return merged_periods
+                elif target_count == 2:
+                    # Merge first two (left) and last two (right)
+                    merged_periods = []
+                    
+                    # Merge Period 1 and Period 2 (first two)
+                    merged_hours_1_2 = periods[0]['hours'] + periods[1]['hours']
+                    merged_periods.append({
+                        'name': 'Period 1',
+                        'color': '#87CEEB',  # Keep Period 1 color
+                        'adoption': 100.0 / 2,  # Equal adoption for 2 periods
+                        'hours': merged_hours_1_2
+                    })
+                    
+                    # Merge Period 3 and Period 4 (last two)
+                    merged_hours_3_4 = periods[2]['hours'] + periods[3]['hours']
+                    merged_periods.append({
+                        'name': 'Period 2',
+                        'color': '#FFD700',  # Use Period 3 color
+                        'adoption': 100.0 / 2,  # Equal adoption for 2 periods
+                        'hours': merged_hours_3_4
+                    })
+                    
+                    return merged_periods
+                return periods
+            
             # Initialize timeline if not in session state
             if 'time_of_use_timeline' not in st.session_state:
+                base_periods = [
+                    {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
+                    {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+                    {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+                    {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
+                ]
+                
+                merged_periods = merge_periods(base_periods, num_periods)
+                
+                # Apply equal adoption percentages
+                equal_adoption = 100.0 / len(merged_periods)
+                for period in merged_periods:
+                    period['adoption'] = equal_adoption
+                
                 st.session_state.time_of_use_timeline = {
-                    'periods': [
-                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
-                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
-                    ],
+                    'periods': merged_periods,
                     'selected_period': 0
                 }
             
             # Store original timeline if not already stored
             if 'original_timeline' not in st.session_state:
+                base_periods = [
+                    {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
+                    {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
+                    {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
+                    {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
+                ]
+                
                 st.session_state.original_timeline = {
-                    'periods': [
-                        {'name': 'Super Off-Peak', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
-                        {'name': 'Off-Peak', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-                        {'name': 'Mid-Peak', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-                        {'name': 'Peak', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
-                    ]
+                    'periods': base_periods
                 }
+            
+            # Update timeline if period count changed
+            if len(st.session_state.time_of_use_timeline['periods']) != num_periods:
+                base_periods = st.session_state.original_timeline['periods']
+                merged_periods = merge_periods(base_periods, num_periods)
+                
+                # Apply equal adoption percentages
+                equal_adoption = 100.0 / len(merged_periods)
+                for period in merged_periods:
+                    period['adoption'] = equal_adoption
+                
+                st.session_state.time_of_use_timeline['periods'] = merged_periods
             
             timeline = st.session_state.time_of_use_timeline
             
@@ -1032,12 +1153,16 @@ with st.sidebar:
             if 'optimized_tou_values' in st.session_state:
                 optimized_values = st.session_state.optimized_tou_values
                 
-                # Map optimized values to timeline periods
-                if len(timeline['periods']) >= 4:
-                    timeline['periods'][0]['adoption'] = optimized_values.get('tou_super_offpeak', 25)  # Super Off-Peak
-                    timeline['periods'][1]['adoption'] = optimized_values.get('tou_offpeak', 25)        # Off-Peak
-                    timeline['periods'][2]['adoption'] = optimized_values.get('tou_midpeak', 25)        # Mid-Peak
-                    timeline['periods'][3]['adoption'] = optimized_values.get('tou_peak', 25)          # Peak
+                # Apply equal adoption percentages for all periods
+                equal_adoption = 100.0 / len(timeline['periods'])
+                for period in timeline['periods']:
+                    period['adoption'] = equal_adoption
+                
+                # Debug output to verify equal adoption percentages
+                print(f"🔍 Main Simulation Debug - {len(timeline['periods'])} periods:")
+                print(f"  Equal adoption percentage: {equal_adoption:.2f}%")
+                for period in timeline['periods']:
+                    print(f"  {period['name']}: {period['adoption']:.2f}%")
                 
                 # Also update the simulation periods in optimization_strategy
                 if 'optimization_strategy' not in st.session_state:
@@ -1113,15 +1238,15 @@ with st.sidebar:
             st.session_state.optimization_strategy['time_of_use_periods'] = simulation_periods
             
             # Add period legend in 2 columns (compressed)
-            legend_col1, legend_col2 = st.columns(2)
-            with legend_col1:
-                st.markdown("**Period Legend:**")
-                st.markdown("- **S** = Super Off-Peak")
-                st.markdown("- **O** = Off-Peak")
-            with legend_col2:
-                st.markdown("&nbsp;")  # Empty space for alignment
-                st.markdown("- **M** = Mid-Peak")
-                st.markdown("- **P** = Peak")
+            # legend_col1, legend_col2 = st.columns(2)
+            # with legend_col1:
+            #     st.markdown("**Period Legend:**")
+            #     st.markdown("- **1** = Period 1")
+            #     st.markdown("- **2** = Period 2")
+            # with legend_col2:
+            #     st.markdown("&nbsp;")  # Empty space for alignment
+            #     st.markdown("- **3** = Period 3")
+            #     st.markdown("- **4** = Period 4")
             
             # Add custom CSS to reduce vertical spacing
             st.markdown("""
@@ -1140,14 +1265,14 @@ with st.sidebar:
             period_options = []
             period_name_mapping = {}
             for period in timeline['periods']:
-                if period['name'] == "Super Off-Peak":
-                    short_name = "S"
-                elif period['name'] == "Off-Peak":
-                    short_name = "O"
-                elif period['name'] == "Mid-Peak":
-                    short_name = "M"
-                elif period['name'] == "Peak":
-                    short_name = "P"
+                if period['name'] == "Period 1":
+                    short_name = "P1"
+                elif period['name'] == "Period 2":
+                    short_name = "P2"
+                elif period['name'] == "Period 3":
+                    short_name = "P3"
+                elif period['name'] == "Period 4":
+                    short_name = "P4"
                 else:
                     short_name = period['name'][0]
                 
@@ -1374,7 +1499,7 @@ with st.sidebar:
                     
                     if margin_curve is not None:
                         # Use the new TOU optimizer
-                        optimal_result = optimize_tou_periods_24h(margin_curve)
+                        optimal_result = optimize_tou_periods_24h(margin_curve, num_periods)
                         
                         # Update the timeline with optimal periods
                         st.session_state.time_of_use_timeline = {
@@ -2735,10 +2860,7 @@ with col1:
                         period_info = [(p['name'], f"{p['start']}-{p['end']}h", f"{p['adoption']}%") for p in time_of_use_periods]
                         
                         
-                        # Validate we have exactly 4 periods
-                        if not validate_periods(time_of_use_periods):
-                            st.error(f"❌ Invalid TOU periods. Expected 4 periods covering 24 hours, but got {len(time_of_use_periods)} periods.")
-                            st.stop()
+                      
                         
                         
                         
