@@ -17,11 +17,11 @@ def create_dynamic_capacity_optimizer_ui():
     st.subheader("🎯 Dynamic Capacity Optimizer")
     st.write("Find optimal TOU adoption percentages by dynamically adding cars based on available capacity.")
     
-    # Get TOU periods from session state
+         # Get TOU periods from session state
     tou_periods = st.session_state.optimization_strategy.get('time_of_use_periods', [])
     if not tou_periods or (hasattr(tou_periods, '__len__') and len(tou_periods) == 0):
-        st.error("❌ Please configure Time of Use periods first")
-        return
+        st.warning("🔔 Please configure Time of Use periods first")
+    return
     
     # Optimization parameters
     col1, col2 = st.columns(2)
@@ -800,8 +800,38 @@ def display_optimization_results(results, time_step, max_iterations):
     # Apply car count results (like max cars optimizer)
     st.session_state.total_evs = total_cars_24h
     st.session_state.charger_config['ac_count'] = total_cars_24h
-    if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
-        st.session_state.time_peaks[0]['quantity'] = total_cars_24h
+    
+    # Check if Time of Use is enabled
+    time_of_use_enabled = ('smart_charging' in st.session_state.get('active_strategies', []) and 
+                          st.session_state.optimization_strategy.get('smart_charging_percent', 0) > 0)
+    
+    if time_of_use_enabled:
+        # For TOU, apply all cars to first peak (same as before)
+        if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
+            st.session_state.time_peaks[0]['quantity'] = total_cars_24h
+    else:
+        # For multiple peaks, distribute cars proportionally
+        if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
+            # Calculate current proportions
+            current_total = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+            
+            if current_total > 0:
+                # Distribute proportionally based on current ratios
+                for peak in st.session_state.time_peaks:
+                    current_quantity = peak.get('quantity', 0)
+                    proportion = current_quantity / current_total
+                    new_quantity = int(total_cars_24h * proportion)
+                    peak['quantity'] = new_quantity
+                
+                # Ensure we don't lose cars due to rounding
+                distributed_total = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+                if distributed_total < total_cars_24h:
+                    # Add remaining cars to the first peak
+                    remaining = total_cars_24h - distributed_total
+                    st.session_state.time_peaks[0]['quantity'] += remaining
+            else:
+                # If no cars currently, put all in first peak
+                st.session_state.time_peaks[0]['quantity'] = total_cars_24h
     
     # Only use optimized_tou_values approach (like Bayesian optimizer)
     

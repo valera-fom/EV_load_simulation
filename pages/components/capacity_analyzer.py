@@ -14,16 +14,16 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
     # Get current number of cars from configuration
     current_cars = 20  # Default fallback
     
-    # Try to get current cars from time_peaks first
+    # Try to get current cars from time_peaks first (sum all peaks)
     if time_peaks and len(time_peaks) > 0:
-        current_cars = time_peaks[0].get('quantity', 20)
+        current_cars = sum(peak.get('quantity', 0) for peak in time_peaks)
     
     # If not found in time_peaks, try to get from session state
-    if current_cars == 20:
+    if current_cars == 0:
         current_cars = st.session_state.get('total_evs', 20)
     
     # If still default, try to get from charger config
-    if current_cars == 20:
+    if current_cars == 0:
         current_cars = charger_config.get('ac_count', 20)
     
     # Ensure we have a reasonable starting point (minimum 5 cars)
@@ -282,16 +282,57 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
             if pv_adoption_percent > 0:
                 pv_battery_count = int(current_cars * pv_adoption_percent / 100)
         
-        # Generate arrival times (same as main simulation)
+        # Generate arrival times for multiple peaks (same as main simulation)
         arrival_times = []
-        for day in range(2):  # 2 days like main simulation
-            day_offset_minutes = day * 24 * 60
-            for i in range(current_cars):
-                # Use same arrival time generation as main simulation
-                arrival_time = np.random.normal(12 * 60, 4 * 60)  # 12h mean, 4h span
-                arrival_time = max(0, min(24 * 60 - 1, arrival_time))  # Clip to 0-24h
-                arrival_time += day_offset_minutes
-                arrival_times.append(arrival_time)
+        
+        # Check if Time of Use is enabled
+        time_of_use_enabled = ('smart_charging' in active_strategies and 
+                              st.session_state.optimization_strategy.get('smart_charging_percent', 0) > 0)
+        
+        if time_of_use_enabled:
+            # Use TOU logic (same as main simulation)
+            for day in range(2):  # 2 days like main simulation
+                day_offset_minutes = day * 24 * 60
+                for i in range(current_cars):
+                    # Use same arrival time generation as main simulation
+                    arrival_time = np.random.normal(12 * 60, 4 * 60)  # 12h mean, 4h span
+                    arrival_time = max(0, min(24 * 60 - 1, arrival_time))  # Clip to 0-24h
+                    arrival_time += day_offset_minutes
+                    arrival_times.append(arrival_time)
+        else:
+            # Use multiple peaks logic (same as main simulation)
+            for day in range(2):  # 2 days like main simulation
+                day_offset_minutes = day * 24 * 60
+                
+                # Generate cars for each peak
+                for peak in time_peaks:
+                    peak_quantity = peak.get('quantity', 0)
+                    if peak_quantity > 0:
+                        peak_mean = peak['time'] * 60
+                        peak_span = peak['span'] * 60
+                        sigma = peak_span
+                        
+                        # Calculate charging duration to shift arrival times
+                        ev_capacity = ev_config['capacity']
+                        ev_charging_rate = ev_config['AC']
+                        charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                        charging_duration_minutes = charging_duration_hours * 60
+                        
+                        # Shift peak by 0.4x the charging duration (so EVs finish charging at peak time)
+                        shift_amount = charging_duration_minutes * 0.4
+                        shifted_peak_mean = peak_mean - shift_amount
+                        
+                        peak_arrivals = np.random.normal(shifted_peak_mean, sigma, peak_quantity)
+                        
+                        # Handle negative times by wrapping to 48 - |negative_time|
+                        for i in range(len(peak_arrivals)):
+                            if peak_arrivals[i] < 0:
+                                # Wrap negative times to 48 - |negative_time|
+                                peak_arrivals[i] = 48 * 60 + peak_arrivals[i]
+                        
+                        # Add day offset
+                        peak_arrivals += day_offset_minutes
+                        arrival_times.extend(peak_arrivals)
         
         arrival_times.sort()
         

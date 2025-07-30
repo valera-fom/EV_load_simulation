@@ -333,26 +333,69 @@ with st.sidebar:
                 }
             ]
         
-        # Display single peak
-        if st.session_state.time_peaks:
-            peak = st.session_state.time_peaks[0]  # Only use the first peak
-            peak_name = peak.get('name', 'Evening Peak')  # Default fallback
-            st.write(f"**📊 {peak_name}**")
+        # Add Peak button and Total EVs at the top
+        col_add_peak, col_total_evs = st.columns([1, 1])
+        
+        with col_add_peak:
+            if st.button("➕ Add Peak", type="secondary"):
+                # Add a new peak with 0 cars and same parameters as first peak
+                if st.session_state.time_peaks:
+                    first_peak = st.session_state.time_peaks[0]
+                    new_peak = {
+                        'name': f'Peak {len(st.session_state.time_peaks) + 1}',
+                        'time': first_peak.get('time', 19),
+                        'span': first_peak.get('span', 1.5),
+                        'quantity': 0,  # Start with 0 cars
+                        'enabled': True
+                    }
+                    st.session_state.time_peaks.append(new_peak)
+                    st.rerun()
+        
+        with col_total_evs:
+            total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+            st.metric("Total EVs", f"{total_evs} EVs")
+        
+        # Display all peaks
+        for i, peak in enumerate(st.session_state.time_peaks):
+            # Get current peak data for immediate title update
+            current_peak = st.session_state.time_peaks[i]
+            peak_name = current_peak.get('name', f'Peak {i+1}')
+            
+            # Create header with delete button for non-first peaks
+            if i == 0:
+                st.write(f"**📊 {peak_name}**")
+            else:
+                col_header, col_delete = st.columns([3, 1])
+                with col_header:
+                    st.write(f"**📊 {peak_name}**")
+                with col_delete:
+                    if st.button("🗑️ Delete", key=f"delete_peak_{i}", type="secondary"):
+                        st.session_state.time_peaks.pop(i)
+                        st.rerun()
+            
             with st.container():
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    new_name = st.text_input("Peak Name", value=str(peak.get('name', 'Evening Peak')), key="peak_name_0")
-                    new_time = st.slider("Peak Time (hours)", min_value=0, max_value=48, value=int(peak.get('time', 19)), key="peak_time_0")
+                    def update_peak_name(i=i):
+                        st.session_state.time_peaks[i]['name'] = st.session_state[f"peak_name_{i}"]
+                        
+                    
+                    new_name = st.text_input("Peak Name", value=str(peak.get('name', f'Peak {i+1}')), key=f"peak_name_{i}", on_change=update_peak_name)
+                    new_time = st.slider("Peak Time (hours)", min_value=0, max_value=48, value=int(peak.get('time', 19)), key=f"peak_time_{i}")
                 
                 with col2:
                     # Ensure span is a float
                     span_value = float(peak.get('span', 1.5)) if peak.get('span') is not None else 1.5
-                    new_span = st.slider("Time Span (1σ in hours)", min_value=0.5, max_value=12.0, value=span_value, step=0.5, key="peak_span_0", help="Spread of arrival times (1 standard deviation)")
-                    new_quantity = st.number_input("EV Quantity", min_value=1, max_value=1000, value=int(peak.get('quantity', 5)), key="peak_quantity_0")
+                    new_span = st.slider("Time Span (1σ in hours)", min_value=0.5, max_value=12.0, value=span_value, step=0.5, key=f"peak_span_{i}", help="Spread of arrival times (1 standard deviation)")
+                    
+                    def update_peak_quantity(i=i):
+                        st.session_state.time_peaks[i]['quantity'] = st.session_state[f"peak_quantity_{i}"]
+                    
+                    new_quantity = st.number_input("EV Quantity", min_value=0, max_value=1000, value=int(peak.get('quantity', 5)), key=f"peak_quantity_{i}", on_change=update_peak_quantity)
                 
                 # Update peak data
-                st.session_state.time_peaks[0] = {
+                st.session_state.time_peaks[i] = {
                     'name': new_name,
                     'time': new_time,
                     'span': new_span,
@@ -458,6 +501,13 @@ with st.sidebar:
                 # Update charger configuration
                 st.session_state.dynamic_charger = {
                     'ac_rate': scenario_data['charging_power_kW'],
+                    'ac_count': math.ceil(evs_per_substation),  # Number of chargers equals number of EVs
+                }
+                
+                # Also update charger_config to match (used by simulation)
+                st.session_state.charger_config = {
+                    'ac_rate': scenario_data['charging_power_kW'],
+                    'ac_count': math.ceil(evs_per_substation),  # Number of chargers equals number of EVs
                 }
                 
                 # Update time peaks configuration
@@ -616,6 +666,13 @@ with st.sidebar:
                     # Update charger configuration
                     st.session_state.dynamic_charger = {
                         'ac_rate': scenario_data['charging_power_kW'],
+                        'ac_count': math.ceil(evs_per_substation),  # Number of chargers equals number of EVs
+                    }
+                    
+                    # Also update charger_config to match (used by simulation)
+                    st.session_state.charger_config = {
+                        'ac_rate': scenario_data['charging_power_kW'],
+                        'ac_count': math.ceil(evs_per_substation),  # Number of chargers equals number of EVs
                     }
                     
                     # Update time peaks configuration
@@ -742,16 +799,15 @@ with st.sidebar:
                 help="Brief description or notes about this scenario"
             )
             
-            # Get current settings (needed for both summary display and save functionality)
-            current_ev = st.session_state.get('dynamic_ev', {})
-            current_charger = st.session_state.get('dynamic_charger', {})
-            current_strategies = st.session_state.get('active_strategies', [])
-            current_optimization = st.session_state.get('optimization_strategy', {})
-            
             # Display current settings that will be captured
             st.write("**📋 Current Settings to be Captured:**")
             
             if show_summary:
+                # Get current settings (needed for summary display)
+                current_ev = st.session_state.get('dynamic_ev', {})
+                current_charger = st.session_state.get('dynamic_charger', {})
+                current_strategies = st.session_state.get('active_strategies', [])
+                current_optimization = st.session_state.get('optimization_strategy', {})
                 
                 # Calculate EVs per substation for the scenario
                 current_peaks = st.session_state.get('time_peaks', [])
@@ -818,6 +874,12 @@ with st.sidebar:
             
             with col_save1:
                 if st.button("💾 Save Scenario", type="primary"):
+                    # Get current settings (needed for save functionality)
+                    current_ev = st.session_state.get('dynamic_ev', {})
+                    current_charger = st.session_state.get('dynamic_charger', {})
+                    current_strategies = st.session_state.get('active_strategies', [])
+                    current_optimization = st.session_state.get('optimization_strategy', {})
+                    
                     # Initialize custom scenarios in session state if not exists
                     if 'custom_scenarios' not in st.session_state:
                         st.session_state.custom_scenarios = {}
@@ -1842,9 +1904,9 @@ with st.sidebar:
 
             
             # Calculate V2G effects
-            # Get total EVs from the single peak
+            # Get total EVs from all peaks
             if 'time_peaks' in st.session_state and st.session_state.time_peaks:
-                total_evs = st.session_state.time_peaks[0]['quantity']
+                total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
             elif 'ev_calculator' in st.session_state and 'total_evs' in st.session_state.ev_calculator:
                 total_evs = st.session_state.ev_calculator['total_evs']
             else:
@@ -2009,8 +2071,38 @@ with st.sidebar:
                     # Automatically apply the max cars results
                     st.session_state.total_evs = max_cars
                     st.session_state.charger_config['ac_count'] = max_cars
-                    if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
-                        st.session_state.time_peaks[0]['quantity'] = max_cars
+                    
+                    # Check if Time of Use is enabled
+                    time_of_use_enabled = ('smart_charging' in active_strategies and 
+                                          st.session_state.optimization_strategy.get('smart_charging_percent', 0) > 0)
+                    
+                    if time_of_use_enabled:
+                        # For TOU, apply all cars to first peak (same as before)
+                        if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
+                            st.session_state.time_peaks[0]['quantity'] = max_cars
+                    else:
+                        # For multiple peaks, distribute cars proportionally
+                        if 'time_peaks' in st.session_state and len(st.session_state.time_peaks) > 0:
+                            # Calculate current proportions
+                            current_total = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+                            
+                            if current_total > 0:
+                                # Distribute proportionally based on current ratios
+                                for peak in st.session_state.time_peaks:
+                                    current_quantity = peak.get('quantity', 0)
+                                    proportion = current_quantity / current_total
+                                    new_quantity = int(max_cars * proportion)
+                                    peak['quantity'] = new_quantity
+                                
+                                # Ensure we don't lose cars due to rounding
+                                distributed_total = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+                                if distributed_total < max_cars:
+                                    # Add remaining cars to the first peak
+                                    remaining = max_cars - distributed_total
+                                    st.session_state.time_peaks[0]['quantity'] += remaining
+                            else:
+                                # If no cars currently, put all in first peak
+                                st.session_state.time_peaks[0]['quantity'] = max_cars
                     
                     # Display capacity analysis results table
                     st.write("**📊 Capacity Analysis Results:**")
@@ -2512,9 +2604,12 @@ with col1:
             EV_MODELS['dynamic_ev'] = dynamic_ev_model
             
             try:
-                # Calculate total EVs from the single peak
+                # Calculate total EVs from all peaks
                 if 'time_peaks' in st.session_state and st.session_state.time_peaks:
-                    total_evs = st.session_state.time_peaks[0]['quantity']
+                    total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+                    if total_evs == 0:
+                        st.error("Please configure at least one peak with EVs")
+                        st.stop()
                 else:
                     st.error("Please configure at least one peak with EVs")
                     st.stop()
@@ -2720,31 +2815,39 @@ with col1:
                                                     # Add to arrival times list
                                                     arrival_times.extend(period_arrival_times)
                 else:
-                    # Use default single peak if Time of Use is not enabled
-                    peak = st.session_state.time_peaks[0]
-                    peak_mean = peak['time'] * 60
-                    peak_span = peak['span'] * 60
-                    sigma = peak_span
-                    
-                    # Calculate charging duration to shift arrival times
-                    ev_capacity = st.session_state.dynamic_ev.get('capacity', 75)
-                    ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11)
-                    charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
-                    charging_duration_minutes = charging_duration_hours * 60
-                    
-                    # Shift peak by 0.4x the charging duration (so EVs finish charging at peak time)
-                    shift_amount = charging_duration_minutes * 0.4
-                    shifted_peak_mean = peak_mean - shift_amount
-                    
-                    peak_arrivals = np.random.normal(shifted_peak_mean, sigma, peak['quantity'])
-                    
-                    # Handle negative times by wrapping to 48 - |negative_time|
-                    for i in range(len(peak_arrivals)):
-                        if peak_arrivals[i] < 0:
-                            # Wrap negative times to 48 - |negative_time|
-                            peak_arrivals[i] = 48 * 60 + peak_arrivals[i]
-                    
-                    arrival_times.extend(peak_arrivals)
+                    # Use multiple peaks if Time of Use is not enabled
+                    for day in range(2):  # 2 days like TOU
+                        day_offset_minutes = day * 24 * 60
+                        
+                        # Generate cars for each peak
+                        for peak in st.session_state.time_peaks:
+                            peak_quantity = peak.get('quantity', 0)
+                            if peak_quantity > 0:
+                                peak_mean = peak['time'] * 60
+                                peak_span = peak['span'] * 60
+                                sigma = peak_span
+                                
+                                # Calculate charging duration to shift arrival times
+                                ev_capacity = st.session_state.dynamic_ev.get('capacity', 75)
+                                ev_charging_rate = st.session_state.dynamic_ev.get('AC', 11)
+                                charging_duration_hours = ev_capacity / ev_charging_rate if ev_charging_rate > 0 else 8
+                                charging_duration_minutes = charging_duration_hours * 60
+                                
+                                # Shift peak by 0.4x the charging duration (so EVs finish charging at peak time)
+                                shift_amount = charging_duration_minutes * 0.4
+                                shifted_peak_mean = peak_mean - shift_amount
+                                
+                                peak_arrivals = np.random.normal(shifted_peak_mean, sigma, peak_quantity)
+                                
+                                # Handle negative times by wrapping to 48 - |negative_time|
+                                for i in range(len(peak_arrivals)):
+                                    if peak_arrivals[i] < 0:
+                                        # Wrap negative times to 48 - |negative_time|
+                                        peak_arrivals[i] = 48 * 60 + peak_arrivals[i]
+                                
+                                # Add day offset
+                                peak_arrivals += day_offset_minutes
+                                arrival_times.extend(peak_arrivals)
                 
                 # Finalize arrival times (sort once)
                 arrival_times = np.array(arrival_times)
