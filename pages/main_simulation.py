@@ -1006,7 +1006,6 @@ with st.sidebar:
             st.write("Configure different charging periods with varying adoption rates based on time-of-use tariffs.")
             
             # Add toggles for number of TOU periods
-            st.info("💡 **Period Options:** 2 periods (simple), 3 periods (balanced), 4 periods (detailed), 5 periods (comprehensive)")
             if 'tou_period_count' not in st.session_state:
                 st.session_state.tou_period_count = 4
             
@@ -1089,7 +1088,7 @@ with st.sidebar:
                     merged_hours_3_4 = periods[2]['hours'] + periods[3]['hours']
                     merged_periods.append({
                         'name': 'Period 2',
-                        'color': '#FFD700',  # Use Period 3 color
+                        'color': '#90EE90',  # Use Period 2 color (not Period 3)
                         'adoption': 100.0 / 2,  # Equal adoption for 2 periods
                         'hours': merged_hours_3_4
                     })
@@ -1153,14 +1152,30 @@ with st.sidebar:
             if 'optimized_tou_values' in st.session_state:
                 optimized_values = st.session_state.optimized_tou_values
                 
-                # Apply equal adoption percentages for all periods
-                equal_adoption = 100.0 / len(timeline['periods'])
-                for period in timeline['periods']:
-                    period['adoption'] = equal_adoption
+                # Create a flexible mapping system that works with any number of periods
+                period_mapping = {
+                    'Period 1': 'tou_super_offpeak',
+                    'Period 2': 'tou_offpeak', 
+                    'Period 3': 'tou_midpeak',
+                    'Period 4': 'tou_peak',
+                    'Period 5': 'tou_peak'  # Map Period 5 to peak for compatibility
+                }
                 
-                # Debug output to verify equal adoption percentages
+                # Apply optimized values to timeline periods using the mapping
+                for period in timeline['periods']:
+                    period_name = period['name']
+                    if period_name in period_mapping:
+                        param_name = period_mapping[period_name]
+                        if param_name in optimized_values:
+                            period['adoption'] = optimized_values[param_name]
+                            print(f"🔍 Applied {param_name}: {optimized_values[param_name]:.2f}% to {period_name}")
+                        else:
+                            print(f"🔍 Warning: {param_name} not found in optimized_values")
+                    else:
+                        print(f"🔍 Warning: Unknown period name '{period_name}'")
+                
+                # Debug output to verify applied values
                 print(f"🔍 Main Simulation Debug - {len(timeline['periods'])} periods:")
-                print(f"  Equal adoption percentage: {equal_adoption:.2f}%")
                 for period in timeline['periods']:
                     print(f"  {period['name']}: {period['adoption']:.2f}%")
                 
@@ -1177,6 +1192,9 @@ with st.sidebar:
                 
                 # Clear the optimized values after applying them
                 del st.session_state.optimized_tou_values
+                
+                # Rerun to refresh the UI with updated values
+                st.rerun()
             
             # Create columns for each period with color blocks
             period_cols = st.columns(len(timeline['periods']))
@@ -1514,7 +1532,7 @@ with st.sidebar:
                         st.session_state.pop('hour_assignments', None)
                         st.session_state.pop('initial_timeline', None)
                         
-                        st.success("✅ Optimal TOU periods created based on 24-hour capacity analysis!")
+                       
                         st.rerun()
                     else:
                         st.error("❌ No grid data available. Please select a dataset or generate synthetic data first.")
