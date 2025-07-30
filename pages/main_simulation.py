@@ -404,7 +404,7 @@ with st.sidebar:
                 )
             
                         # Checkbox in second row
-            show_builtin_summary = st.checkbox("📊 Show Summary", value=True, help="Toggle to show/hide the detailed scenario summary", key="show_builtin_summary")
+            show_builtin_summary = st.checkbox("📊 Show Summary", value=False, help="Toggle to show/hide the detailed scenario summary", key="show_builtin_summary")
             
             # Get scenario data
             scenario_data = portugal_ev_scenarios[selected_year]['scenarios'][selected_scenario]
@@ -497,7 +497,7 @@ with st.sidebar:
                     'scenario': selected_scenario,
                 }
                 
-                st.session_state.scenario_success_message = f"✅ Scenario applied! {math.ceil(evs_per_substation)} EVs distributed across peaks. Smart charging set to {smart_charging_percent}%. Grid battery set to {grid_battery_adoption}% adoption. V2G set to {v2g_adoption_percent}% adoption."
+                st.session_state.scenario_success_message = f"✅ Scenario applied!"
                 st.session_state.scenario_success_timer = 0
                 st.rerun()
             
@@ -590,7 +590,7 @@ with st.sidebar:
                         )
                 
                                 # Checkbox in second row
-                show_custom_summary = st.checkbox("📊 Show Summary", value=True, help="Toggle to show/hide the detailed scenario summary", key="show_custom_summary")
+                show_custom_summary = st.checkbox("📊 Show Summary", value=False, help="Toggle to show/hide the detailed scenario summary", key="show_custom_summary")
                 
                 # Get custom scenario data
                 scenario_data = st.session_state.custom_scenarios[selected_custom_year]['scenarios'][selected_custom_scenario]
@@ -733,8 +733,8 @@ with st.sidebar:
                     help="Target year for the scenario"
                 )
             
-            with col3:
-                show_summary = st.checkbox("📊 Show Summary", value=True, help="Toggle to show/hide the detailed scenario summary", key="show_add_scenario_summary")
+            
+            show_summary = st.checkbox("📊 Show Summary", value=False, help="Toggle to show/hide the detailed scenario summary", key="show_add_scenario_summary")
             
             new_scenario_notes = st.text_area(
                 "Scenario Notes",
@@ -742,21 +742,22 @@ with st.sidebar:
                 help="Brief description or notes about this scenario"
             )
             
+            # Get current settings (needed for both summary display and save functionality)
+            current_ev = st.session_state.get('dynamic_ev', {})
+            current_charger = st.session_state.get('dynamic_charger', {})
+            current_strategies = st.session_state.get('active_strategies', [])
+            current_optimization = st.session_state.get('optimization_strategy', {})
+            
             # Display current settings that will be captured
             st.write("**📋 Current Settings to be Captured:**")
             
             if show_summary:
+                
                 # Calculate EVs per substation for the scenario
                 current_peaks = st.session_state.get('time_peaks', [])
                 total_evs = sum(peak.get('quantity', 0) for peak in current_peaks)
                 substation_count = portugal_ev_scenarios['substation_count']
                 ev_penetration = total_evs / substation_count if substation_count > 0 else 0
-                
-                # Get current settings
-                current_ev = st.session_state.get('dynamic_ev', {})
-                current_charger = st.session_state.get('dynamic_charger', {})
-                current_strategies = st.session_state.get('active_strategies', [])
-                current_optimization = st.session_state.get('optimization_strategy', {})
                 
                 # Calculate EVs per substation
                 evs_per_substation = ev_penetration
