@@ -3025,20 +3025,8 @@ with col1:
             
             # Run simulation and store results
             if power_values is not None:
-                st.rerun()
-    
-    with button_col2:
-        if st.session_state.seed_mode == "manual":
-            if st.button("🎲 Change Seed"):
-                # Generate a new random seed
-                import random
-                old_seed = st.session_state.random_seed
-                st.session_state.random_seed = random.randint(1, 10000)
-                st.rerun()
-        else:
-            st.write("")
-            # Create dynamic EV model
-            dynamic_ev_model = {
+                # Create dynamic EV model
+                dynamic_ev_model = {
                 'name': 'Custom EV',
                 'capacity': st.session_state.dynamic_ev['capacity'],
                 'AC': st.session_state.dynamic_ev['AC']
@@ -3779,6 +3767,17 @@ with col1:
                 EV_MODELS.update(original_ev_models)
                 CHARGER_MODELS.clear()
                 CHARGER_MODELS.update(original_charger_models)
+    
+    with button_col2:
+        if st.session_state.seed_mode == "manual":
+            if st.button("🎲 Change Seed"):
+                # Generate a new random seed
+                import random
+                old_seed = st.session_state.random_seed
+                st.session_state.random_seed = random.randint(1, 10000)
+                st.rerun()
+        else:
+            st.write("")
     
     # Display simulation results if available
     if ('simulation_results' in st.session_state and st.session_state.simulation_results is not None):
