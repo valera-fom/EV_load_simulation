@@ -78,12 +78,12 @@ def create_pdf_report(simulation_results, simulation_description, include_option
     return create_matplotlib_pdf(simulation_results, simulation_description, include_options)
 
 
-def create_reportlab_pdf(simulation_results, simulation_description, include_options, theme='light'):
+def create_reportlab_pdf(simulation_results, simulation_description, include_options, theme='light-blue'):
     """Create beautiful PDF using ReportLab with comprehensive data and professional styling."""
     try:
         # Define theme colors
-        if theme == 'dark':
-            # Dark theme colors - modern dark theme like the image
+        if theme == 'dark-blue':
+            # Dark blue theme colors - modern dark theme like the image
             bg_color = HexColor('#0f0f0f')  # Very dark background
             text_color = HexColor('#ffffff')  # Pure white text
             title_color = HexColor('#3b82f6')  # Modern blue
@@ -92,9 +92,53 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             table_row_bg1 = HexColor('#111827')  # Very dark row
             table_row_bg2 = HexColor('#1f2937')  # Slightly lighter row
             table_grid = HexColor('#374151')  # Medium gray grid
-            highlight_color = HexColor('#1e40af')  # Medium blue for highlighting (between previous bright and current dark)
+            highlight_color = HexColor('#1e40af')  # Medium blue for highlighting
+        elif theme == 'light-green':
+            # Light green theme colors
+            bg_color = HexColor('#ffffff')
+            text_color = HexColor('#000000')
+            title_color = HexColor('#059669')  # Green
+            subtitle_color = HexColor('#047857')  # Darker green
+            table_header_bg = HexColor('#059669')
+            table_row_bg1 = HexColor('#f0fdf4')  # Very light green
+            table_row_bg2 = HexColor('#ffffff')
+            table_grid = HexColor('#bbf7d0')  # Light green grid
+            highlight_color = HexColor('#dcfce7')  # Light green for highlighting
+        elif theme == 'light-brown':
+            # Light brown theme colors
+            bg_color = HexColor('#ffffff')
+            text_color = HexColor('#000000')
+            title_color = HexColor('#92400e')  # Brown
+            subtitle_color = HexColor('#78350f')  # Darker brown
+            table_header_bg = HexColor('#92400e')
+            table_row_bg1 = HexColor('#fefce8')  # Very light brown
+            table_row_bg2 = HexColor('#ffffff')
+            table_grid = HexColor('#fde68a')  # Light brown grid
+            highlight_color = HexColor('#fef3c7')  # Light brown for highlighting
+        elif theme == 'dark-orange':
+            # Dark orange theme colors
+            bg_color = HexColor('#1c1917')  # Very dark background
+            text_color = HexColor('#ffffff')  # Pure white text
+            title_color = HexColor('#ea580c')  # Orange
+            subtitle_color = HexColor('#f97316')  # Lighter orange
+            table_header_bg = HexColor('#292524')  # Dark gray header
+            table_row_bg1 = HexColor('#1c1917')  # Very dark row
+            table_row_bg2 = HexColor('#292524')  # Slightly lighter row
+            table_grid = HexColor('#44403c')  # Medium gray grid
+            highlight_color = HexColor('#c2410c')  # Dark orange for highlighting
+        elif theme == 'dark-green':
+            # Dark green theme colors
+            bg_color = HexColor('#0f172a')  # Very dark background
+            text_color = HexColor('#ffffff')  # Pure white text
+            title_color = HexColor('#10b981')  # Green
+            subtitle_color = HexColor('#34d399')  # Lighter green
+            table_header_bg = HexColor('#1e293b')  # Dark gray header
+            table_row_bg1 = HexColor('#0f172a')  # Very dark row
+            table_row_bg2 = HexColor('#1e293b')  # Slightly lighter row
+            table_grid = HexColor('#334155')  # Medium gray grid
+            highlight_color = HexColor('#059669')  # Dark green for highlighting
         else:
-            # Light theme colors (current)
+            # Light blue theme colors (default)
             bg_color = HexColor('#ffffff')
             text_color = HexColor('#000000')
             title_color = HexColor('#1f77b4')
@@ -149,8 +193,8 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             bottomMargin=1.5*cm
         )
         
-        # Set page background color for dark theme
-        if theme == 'dark':
+        # Set page background color for dark themes
+        if theme in ['dark-blue', 'dark-orange', 'dark-green']:
             def add_page_background(canvas, doc):
                 canvas.setFillColor(bg_color)
                 canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1)
@@ -400,8 +444,8 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 img_buffer = io.BytesIO()
                 
                 # Set figure properties for better visibility in PDF with theme-appropriate background
-                if theme == 'dark':
-                    # Dark theme for graphs - much lighter background
+                if theme == 'dark-blue':
+                    # Dark blue theme for graphs - much lighter background
                     main_fig.patch.set_facecolor('#9ca3af')  # Much lighter gray background
                     main_fig.patch.set_alpha(1.0)
                     
@@ -440,8 +484,158 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                     main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
                                    facecolor='#9ca3af', edgecolor='none', 
                                    pad_inches=0.1, transparent=False)
+                elif theme == 'light-green':
+                    # Light green theme for graphs
+                    main_fig.patch.set_facecolor('#f0fdf4')  # Very light green background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to light green for better contrast
+                        ax.set_facecolor('#f7fee7')  # Slightly darker than figure background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with darker background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#84cc16')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#333333')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#333333')
+                        ax.spines['top'].set_color('#333333')
+                        ax.spines['left'].set_color('#333333')
+                        ax.spines['right'].set_color('#333333')
+                    
+                    # Save with higher DPI and better compression
+                    main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                   facecolor='#f0fdf4', edgecolor='none', 
+                                   pad_inches=0.1, transparent=False)
+                elif theme == 'light-brown':
+                    # Light brown theme for graphs
+                    main_fig.patch.set_facecolor('#fefce8')  # Very light brown background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to light brown for better contrast
+                        ax.set_facecolor('#fef9c3')  # Slightly darker than figure background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with darker background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#eab308')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#333333')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#333333')
+                        ax.spines['top'].set_color('#333333')
+                        ax.spines['left'].set_color('#333333')
+                        ax.spines['right'].set_color('#333333')
+                    
+                    # Save with higher DPI and better compression
+                    main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                   facecolor='#fefce8', edgecolor='none', 
+                                   pad_inches=0.1, transparent=False)
+                elif theme == 'dark-orange':
+                    # Dark orange theme for graphs - lighter background
+                    main_fig.patch.set_facecolor('#78716c')  # Medium gray background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to lighter for better contrast
+                        ax.set_facecolor('#a8a29e')  # Lighter gray background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with dark background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#57534e')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#000000')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Ensure title and axis labels are dark for better contrast
+                        ax.xaxis.label.set_color('#000000')
+                        ax.yaxis.label.set_color('#000000')
+                        ax.title.set_color('#000000')
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#000000')
+                        ax.spines['top'].set_color('#000000')
+                        ax.spines['left'].set_color('#000000')
+                        ax.spines['right'].set_color('#000000')
+                    
+                        # Save with higher DPI and better compression
+                        main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                    facecolor='#78716c', edgecolor='none', 
+                                    pad_inches=0.1, transparent=False)
+                elif theme == 'dark-green':
+                    # Dark green theme for graphs - lighter background
+                    main_fig.patch.set_facecolor('#475569')  # Medium gray background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to lighter for better contrast
+                        ax.set_facecolor('#64748b')  # Lighter gray background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with dark background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#475569')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#000000')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Ensure title and axis labels are dark for better contrast
+                        ax.xaxis.label.set_color('#000000')
+                        ax.yaxis.label.set_color('#000000')
+                        ax.title.set_color('#000000')
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#000000')
+                        ax.spines['top'].set_color('#000000')
+                        ax.spines['left'].set_color('#000000')
+                        ax.spines['right'].set_color('#000000')
+                    
+                    # Save with higher DPI and better compression
+                    main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                   facecolor='#475569', edgecolor='none', 
+                                   pad_inches=0.1, transparent=False)
                 else:
-                    # Light theme for graphs
+                    # Light blue theme for graphs (default)
                     main_fig.patch.set_facecolor('#f0f0f0')  # Light gray background
                     main_fig.patch.set_alpha(1.0)
                     
@@ -734,16 +928,26 @@ def render_pdf_save_ui():
     """
     st.markdown("### 📄 Save Results")
     
-    # Theme selection
-    st.markdown("**Choose PDF theme:**")
+    
+    # Single radio button with all 6 themes in horizontal layout
     theme = st.radio(
-        "Theme:",
-        ["Light", "Dark"],
+        "Select theme:",
+        ["Light Blue", "Dark Blue", "Light Green", "Light Brown", "Dark Orange", "Dark Green"],
         index=0,
         horizontal=True,
-        help="Light: Clean white background. Dark: Modern dark theme with better contrast."
+        help="Choose from light and dark themes"
     )
-    theme = theme.lower()  # Convert to lowercase for the function
+    
+    # Convert theme name to function parameter
+    theme_map = {
+        "Light Blue": "light-blue",
+        "Dark Blue": "dark-blue", 
+        "Light Green": "light-green",
+        "Light Brown": "light-brown",
+        "Dark Orange": "dark-orange",
+        "Dark Green": "dark-green"
+    }
+    theme = theme_map[theme]
     
     # Content selection
     st.markdown("**Select content to include in the report:**")

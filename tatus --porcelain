@@ -1,5 +1,0 @@
-[33m7d289c3[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix TOU negative time handling and x-axis label formatting - Fix TOU arrival time wrapping to handle day-specific negative times properly - Fix x-axis labels to show proper Day-Hour format (01-00, 01-04, etc.) instead of double dashes - Allow TOU simulations to extend beyond 48 hours for multi-day scenarios
-[33m361cdb6[m Fix TOU simulation: correct standard deviation calculation and add 0.4x charging duration shift for individual periods
-[33m3f8d7e9[m Fix EV adoption percentage calculation in simulation information
-[33m8fc6e18[m Add dynamic capacity optimizer with graph preservation and EV adoption percentage
-[33m6d90f12[m Add normal distribution toggles with 3 levels for all battery strategies

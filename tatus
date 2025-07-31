@@ -1,5 +1,0 @@
-[33m36eb150[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m data loader now modular
-[33m92f1586[m Add session manager for saving/loading simulation configurations
-[33m7499efc[m Fix automatic simulation rerun and improve PDF styling
-[33m2501402[m Enhance PDF generator with improved structure and metadata
-[33mce695ef[m simualte button fixed
