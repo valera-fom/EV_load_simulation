@@ -19,16 +19,39 @@ warnings.filterwarnings('ignore')
 # Add parent directory to path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sim_setup import SimulationSetup
-from EV import EV, EV_MODELS
-from charger import CHARGER_MODELS
-from pages.components.capacity_analyzer import find_max_cars_capacity
+try:
+    from sim_setup import SimulationSetup
+except ImportError as e:
+    st.error(f"Failed to import SimulationSetup: {e}")
+    st.stop()
+
+try:
+    from EV import EV, EV_MODELS
+except ImportError as e:
+    st.error(f"Failed to import EV: {e}")
+    st.stop()
+
+try:
+    from charger import CHARGER_MODELS
+except ImportError as e:
+    st.error(f"Failed to import charger: {e}")
+    st.stop()
+try:
+    from pages.components.capacity_analyzer import find_max_cars_capacity
+except ImportError as e:
+    st.error(f"Failed to import capacity_analyzer: {e}")
+    st.stop()
+
 # Import the new TOU optimizer
-from pages.components.tou_optimizer import (
-    optimize_tou_periods_24h, 
-    convert_to_simulation_format, 
-    validate_periods
-)
+try:
+    from pages.components.tou_optimizer import (
+        optimize_tou_periods_24h, 
+        convert_to_simulation_format, 
+        validate_periods
+    )
+except ImportError as e:
+    st.error(f"Failed to import tou_optimizer: {e}")
+    st.stop()
 # Import optimization components
 
 def _is_light_color(hex_color):
@@ -1153,13 +1176,22 @@ with st.sidebar:
                 optimized_values = st.session_state.optimized_tou_values
                 
                 # Create a flexible mapping system that works with any number of periods
-                period_mapping = {
-                    'Period 1': 'tou_super_offpeak',
-                    'Period 2': 'tou_offpeak', 
-                    'Period 3': 'tou_midpeak',
-                    'Period 4': 'tou_peak',
-                    'Period 5': 'tou_peak'  # Map Period 5 to peak for compatibility
-                }
+                # Only map periods that actually exist to avoid conflicts
+                period_mapping = {}
+                
+                # Map based on the actual periods present using period_one, period_two, etc.
+                for period in timeline['periods']:
+                    period_name = period['name']
+                    if period_name == 'Period 1':
+                        period_mapping[period_name] = 'period_one'
+                    elif period_name == 'Period 2':
+                        period_mapping[period_name] = 'period_two'
+                    elif period_name == 'Period 3':
+                        period_mapping[period_name] = 'period_three'
+                    elif period_name == 'Period 4':
+                        period_mapping[period_name] = 'period_four'
+                    elif period_name == 'Period 5':
+                        period_mapping[period_name] = 'period_five'
                 
                 # Apply optimized values to timeline periods using the mapping
                 for period in timeline['periods']:

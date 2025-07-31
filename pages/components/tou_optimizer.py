@@ -243,11 +243,15 @@ def convert_to_simulation_format(periods: List[Dict]) -> List[Dict]:
             existing['end'] = max(existing['end'], period['end'])
             # Keep the original adoption percentage (don't average)
     
-    # Apply equal adoption percentages to ensure consistency
+    # Preserve original adoption percentages instead of forcing equal distribution
+    # This allows optimized values from dynamic optimizer to be maintained
+    # Only apply equal adoption if all periods have the same adoption value (indicating default)
     if unique_periods:
-        equal_adoption = 100.0 / len(unique_periods)
-        for period in unique_periods:
-            period['adoption'] = equal_adoption
+        adoption_values = [period['adoption'] for period in unique_periods]
+        if len(set(adoption_values)) == 1 and adoption_values[0] == 25.0:  # Default equal distribution
+            equal_adoption = 100.0 / len(unique_periods)
+            for period in unique_periods:
+                period['adoption'] = equal_adoption
     
     return unique_periods
 

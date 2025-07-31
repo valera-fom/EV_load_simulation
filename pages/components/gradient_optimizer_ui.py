@@ -789,60 +789,40 @@ def display_optimization_results(results, time_step, max_iterations):
     }
     
     # Store optimized TOU values in session state (like Bayesian optimizer)
-    # Apply the squaring logic for better results - use capacity-weighted percentages
+    # Use the final normalized percentages that are already calculated and applied to TOU periods
     optimized_tou_values = {}
     
-    # Debug output to verify capacity-weighted percentages
+    # Debug output to verify final percentages
     print(f"🔍 Gradient Optimizer UI Debug - {len(tou_periods)} periods:")
-    print(f"  Applying capacity-weighted percentages with squaring logic")
+    print(f"  Using final normalized percentages from table calculation")
     
     # Create a flexible mapping system that works with any number of periods
-    period_mapping = {
-        'Period 1': 'tou_super_offpeak',
-        'Period 2': 'tou_offpeak', 
-        'Period 3': 'tou_midpeak',
-        'Period 4': 'tou_peak',
-        'Period 5': 'tou_peak'  # Map Period 5 to peak for compatibility
-    }
+    # Only map periods that actually exist to avoid conflicts
+    period_mapping = {}
     
-    # Calculate capacity-weighted percentages using the squaring logic
-    capacity_weighted_values = {}
-    total_capacity_weighted = 0
+    # Map based on the actual periods present using period_one, period_two, etc.
+    for period in tou_periods:
+        period_name = period['name']
+        if period_name == 'Period 1':
+            period_mapping[period_name] = 'period_one'
+        elif period_name == 'Period 2':
+            period_mapping[period_name] = 'period_two'
+        elif period_name == 'Period 3':
+            period_mapping[period_name] = 'period_three'
+        elif period_name == 'Period 4':
+            period_mapping[period_name] = 'period_four'
+        elif period_name == 'Period 5':
+            period_mapping[period_name] = 'period_five'
     
+    # Use the final normalized percentages that are already applied to TOU periods
     for period in tou_periods:
         period_name = period['name']
         if period_name in period_mapping:
-            # Get the final normalized percentage that was already calculated with squaring
+            # Get the final percentage that was already calculated with squaring and normalization
             final_percentage = period['adoption']
-            
-            # Apply the squaring logic: weight by capacity squared for stronger effect
-            avg_capacity = period_avg_capacities.get(period_name, 0)
-            capacity_weight = 2.0  # Weight factor - squaring the capacity for stronger effect
-            
-            # Calculate capacity-weighted percentage
-            capacity_weighted = final_percentage * (avg_capacity ** capacity_weight) / (100.0 ** capacity_weight)
-            
-            capacity_weighted_values[period_name] = capacity_weighted
-            total_capacity_weighted += capacity_weighted
-            
-            print(f"  {period_name} -> {period_mapping[period_name]}: Final={final_percentage:.2f}%, Capacity={avg_capacity:.1f}kW, Squared={(avg_capacity ** capacity_weight):.1f}, Weighted={capacity_weighted:.2f}")
-    
-    # Normalize capacity-weighted values to sum to 100%
-    if total_capacity_weighted > 0:
-        for period_name, capacity_weighted in capacity_weighted_values.items():
-            normalized_percentage = (capacity_weighted / total_capacity_weighted) * 100
             param_name = period_mapping[period_name]
-            optimized_tou_values[param_name] = normalized_percentage
-            print(f"  Final {period_name} -> {param_name}: {normalized_percentage:.2f}%")
-    else:
-        # Fallback to equal distribution if no capacity data
-        equal_adoption = 100.0 / len(tou_periods)
-        for period in tou_periods:
-            period_name = period['name']
-            if period_name in period_mapping:
-                param_name = period_mapping[period_name]
-                optimized_tou_values[param_name] = equal_adoption
-                print(f"  Fallback {period_name} -> {param_name}: {equal_adoption:.2f}%")
+            optimized_tou_values[param_name] = final_percentage
+            print(f"  {period_name} -> {param_name}: {final_percentage:.2f}%")
     
     # Ensure we don't have duplicate mappings that could cause unequal distribution
     # For 2-3 periods, remove unused mappings

@@ -9,10 +9,13 @@ def create_ev(model_name, soc=0.2):
         raise ValueError(f"Unknown model: {model_name}")
     
     EV_specs = EV_MODELS[model_name]
+    
+    # Prioritize DC over AC for charging power
+    max_power = EV_specs.get('DC') or EV_specs.get('AC')
 
     return EV(name=model_name,
               battery_capacity=EV_specs["capacity"],
-              max_charging_power=EV_specs["max_power"],
+              max_charging_power=max_power,
               soc=soc)
 
 def create_charger(env, model_name, num_ports=1):
