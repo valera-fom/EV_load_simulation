@@ -1,40 +1,42 @@
-# EV Load Forecasting Simulation
+# EV Load Simulation Tool
 
-A comprehensive Streamlit application for simulating Electric Vehicle (EV) charging load forecasting with advanced Time of Use (ToU) optimization and multiple charging strategies.
+A comprehensive Streamlit application for simulating Electric Vehicle (EV) charging load patterns and their impact on electrical grid infrastructure. Features advanced optimization strategies including Time of Use (TOU) pricing, PV+battery systems, Vehicle-to-Grid (V2G), and grid battery storage.
 
-## Features
+## 🎯 Key Features
 
-### 🚗 EV Simulation
-- **Dynamic EV Fleet Modeling** - Simulate realistic EV populations with varying battery capacities and charging rates
-- **Multiple EV Models** - Support for different EV types with configurable parameters
-- **Charging Infrastructure** - Various charger types and power levels
+### 🚗 EV Simulation & Configuration
+- **Dynamic EV Fleet Modeling** - Configure battery capacity, charging rates, and initial state of charge
+- **Flexible Charging Infrastructure** - Set AC charger count and power levels
+- **Time-based Arrival Patterns** - Configure multiple charging peaks with custom timing and duration
+- **Realistic Charging Algorithms** - EV arrival/departure patterns with intelligent charging behavior
 
-### ⚡ Time of Use (ToU) Optimization
-- **Interactive Timeline** - 24-hour period assignment with visual color coding
-- **Multiple Period Types** - Super Off-Peak, Off-Peak, Mid-Peak, and Peak periods
-- **Smart Car Distribution** - Automatic proportional splitting of EVs among multiple periods of the same type
-- **Real-time Adoption Rates** - Configurable adoption percentages for each period
-- **Cycling Buttons** - Quick period assignment with visual feedback
-- **🎯 Intelligent TOU Optimizer** - Automated period creation based on grid capacity analysis
-  - **24-Hour Analysis** - Optimizes periods based on first 24 hours of grid data
-  - **Capacity-Based Assignment** - Assigns periods based on available grid capacity levels
-  - **Automatic Merging** - Combines distributed periods of the same type for clean UI
-  - **Normalized Adoption** - Ensures total adoption equals 100% across all periods
-  - **Visual Optimization** - Shows capacity thresholds and period assignments
+### ⚡ Time of Use (TOU) Optimization
+- **Interactive TOU Configuration** - Set up 2-5 charging periods with visual timeline
+- **Smart Charging Adoption** - Configurable adoption percentages for each period (total ≤ 100%)
+- **Peak/Off-Peak Logic** - Optimize charging during lower-cost electricity periods
+- **Automatic Validation** - Ensures proper period configuration and adoption rates
 
-### 🔋 Advanced Charging Strategies
-- **PV + Battery System** - Solar charging during day, battery discharge during evening
-- **Grid Battery Charging** - Off-peak grid charging with peak discharge
-- **Vehicle-to-Grid (V2G)** - Bidirectional charging with discharge and recharge cycles
+### 🔋 Advanced Optimization Strategies
 - **Smart Charging** - Time-based optimization for grid load balancing
+- **PV + Battery System** - Solar charging during day, battery discharge during evening peak
+- **Grid Battery Storage** - Off-peak grid charging with peak discharge for load balancing
+- **Vehicle-to-Grid (V2G)** - Bidirectional charging with discharge and recharge cycles
 
-### 📊 Comprehensive Analytics
-- **Load Profile Visualization** - Real-time charging demand curves
-- **Grid Impact Analysis** - Capacity utilization and overload detection
-- **Multi-day Simulation** - Extended duration analysis with realistic patterns
-- **Performance Metrics** - Detailed statistics and optimization results
+### 📊 Analysis & Optimization Tools
+- **Capacity Analysis** - Find maximum EV count for given infrastructure constraints
+- **Dynamic Load Optimizer** - AI-powered gradient-based optimization for TOU periods
+- **Peak Demand Analysis** - Visualize grid load curves with EV charging overlay
+- **Strategy Impact Comparison** - Compare effects of different optimization approaches
 
-## Installation
+### 📈 Data & Visualization
+- **Multiple Data Sources** - Upload Excel files or generate AI-powered synthetic load curves
+- **Interactive Charts** - Real-time visualization of load curves and optimization effects
+- **Professional PDF Reports** - Generate detailed analysis reports with customizable content
+- **Scenario Management** - Save and load different simulation configurations
+
+## 🚀 Quick Start
+
+### Installation
 
 1. **Clone the repository**
    ```bash
@@ -47,78 +49,119 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
    pip install -r requirements.txt
    ```
 
-3. **Add your grid data** (optional)
-   - Place your grid data CSV files in the `datasets/` directory
-   - Files should have: Date, Active power, Spare power columns
-   - Or use the provided sample data
-
-4. **Run the application**
+3. **Run the application**
    ```bash
-   streamlit run pages/main_simulation.py
+   streamlit run app.py
    ```
 
-## Usage
+### Basic Usage
 
-### Basic Setup
-1. **Configure EV Fleet** - Set total EVs, battery capacities, and charging rates
-2. **Define Time of Use Periods** - Assign hours to different tariff periods using the interactive timeline
-3. **Set Adoption Rates** - Configure percentage of users for each period
-4. **Enable Strategies** - Activate PV, V2G, or other optimization strategies
-5. **Run Simulation** - Execute and analyze results
+1. **Data Setup** (Required First)
+   - Upload Excel file with datetime and load data, OR
+   - Switch to 'Synthetic Generation' and configure parameters, OR
+   - Use 'Generate Synthetic Curve' button for quick start
 
-### Advanced Features
-- **Multiple Peak Management** - Handle complex charging patterns with multiple peaks
-- **Real-time Optimization** - Dynamic load balancing based on grid capacity
-- **Scenario Analysis** - Compare different adoption rates and strategies
-- **Export Results** - Save simulation data for further analysis
-- **🎯 TOU Optimization** - Automated period creation using the "Find Optimal TOU" button
-  - **Grid Data Analysis** - Analyzes available capacity from selected dataset or synthetic data
-  - **Capacity Thresholds** - Creates 4 equal capacity buckets for period assignment
-  - **Period Distribution** - Automatically assigns hours to optimal periods
-  - **Adoption Balancing** - Normalizes adoption percentages to total 100%
+2. **Configuration** (Sidebar)
+   - Set EV battery capacity and charging rate
+   - Configure AC charger count and power
+   - Set simulation duration and charging peaks
 
-## Project Structure
+3. **Time of Use Setup** (Optional)
+   - Enable 'Smart Charging' in strategies
+   - Configure peak/off-peak periods and adoption percentages
+   - Ensure total adoption ≤ 100%
+
+4. **Optimization Strategies** (Optional)
+   - Enable PV + Battery, Grid Battery, or V2G strategies
+   - Configure strategy-specific parameters
+
+5. **Run Simulation**
+   - Click 'Run Simulation' to execute analysis
+   - View results and generate PDF reports
+
+## 📁 Project Structure
 
 ```
 EV_simulation/
+├── app.py                     # Main application entry point
 ├── pages/
-│   ├── main_simulation.py      # Main Streamlit application with ToU optimization
-│   ├── vehicle_sandbox.py      # Vehicle testing and configuration interface
+│   ├── main_simulation.py     # Core simulation interface with TOU optimization
+│   ├── vehicle_sandbox.py     # Vehicle testing and configuration interface
 │   └── components/
-│       ├── tou_optimizer.py    # Intelligent TOU period optimization engine
+│       ├── tou_optimizer.py   # TOU period optimization engine
 │       ├── capacity_analyzer.py # Grid capacity analysis utilities
-│       └── gradient_optimizer_ui.py # Advanced optimization interface
-├── datasets/                   # Grid profile and historical data (not in repo)
-│   ├── df1.csv                # Grid data file 1
-│   ├── df2.csv                # Grid data file 2
-│   └── df3.csv                # Grid data file 3
-├── EV.py                      # EV models and fleet configuration
-├── charger.py                  # Charging infrastructure models
-├── sim_setup.py               # Simulation configuration and setup
-├── charging_procces.py        # Charging algorithm implementation
-├── ev_factory.py              # EV fleet generation utilities
-├── app.py                     # Streamlit app entry point
-├── requirements.txt            # Python dependencies
-├── .gitignore                 # Git ignore rules
-├── LICENSE                    # MIT License
-└── README.md                  # This file
+│       ├── gradient_optimizer_ui.py # Dynamic load optimization interface
+│       ├── pdf_generator.py   # Professional PDF report generation
+│       └── session_manager.py # Configuration save/load functionality
+├── portable_load_generator.py # AI-powered synthetic load curve generation
+├── portable_models/           # Trained models for synthetic data generation
+│   ├── weekday/              # Weekday load patterns
+│   └── weekend/              # Weekend load patterns
+├── EV.py                     # EV models and fleet configuration
+├── charger.py                # Charging infrastructure models
+├── sim_setup.py             # Simulation configuration and setup
+├── charging_procces.py      # Charging algorithm implementation
+├── ev_factory.py            # EV fleet generation utilities
+├── requirements.txt         # Python dependencies
+├── LICENSE                  # MIT License
+└── README.md               # This file
 ```
 
-## Key Technologies
+## 🔧 Technical Details
 
-- **Streamlit** - Interactive web application framework
-- **NumPy** - Numerical computations and array operations
-- **Pandas** - Data manipulation and analysis
-- **Matplotlib** - Data visualization and plotting
-- **Python 3.8+** - Core programming language
+### Simulation Engine
+- **EV Arrival/Departure Patterns** - Realistic charging behavior simulation
+- **Charging Algorithms** - Intelligent load management based on grid capacity
+- **Time Resolution** - 1-minute resolution simulation with 15-minute data upsampling
+- **Multi-day Analysis** - Extended 48-hour simulation capabilities
 
-## Data Privacy
+### Data Processing
+- **Excel File Import** - Support for datetime and load data columns
+- **Synthetic Generation** - AI-powered load curve generation using trained models
+- **Data Validation** - Automatic validation of uploaded data formats
+- **Grid Profile Processing** - Capacity analysis and margin curve calculation
 
-- **Grid data files** are excluded from the repository for privacy/security
-- **Sample data** can be added to the `datasets/` directory for testing
-- **Configuration files** are included for easy setup
+### Optimization Algorithms
+- **Capacity Analysis** - Maximum EV count calculation for infrastructure constraints
+- **Gradient-based Optimization** - Dynamic TOU period optimization
+- **Strategy Simulation** - PV, V2G, and grid battery effect modeling
+- **Peak Demand Reduction** - Intelligent load balancing algorithms
 
-## Contributing
+### Output & Visualization
+- **Interactive Plots** - Real-time load curve visualization with optimization effects
+- **PDF Report Generation** - Professional analysis reports with customizable themes
+- **Data Export** - Simulation results and configuration export
+- **Session Management** - Save and restore simulation configurations
+
+## 🎯 Use Cases
+
+### Utility Companies
+- **Grid Planning** - Assess infrastructure requirements for EV adoption
+- **Load Forecasting** - Predict peak demand with EV charging patterns
+- **TOU Strategy Development** - Optimize pricing periods for load balancing
+- **Capacity Planning** - Determine optimal EV count for existing infrastructure
+
+### Researchers & Analysts
+- **EV Impact Studies** - Analyze grid effects of different EV adoption scenarios
+- **Strategy Comparison** - Compare effectiveness of various optimization approaches
+- **Data Analysis** - Process and visualize real grid data with EV charging
+- **Scenario Testing** - Test different EV fleet compositions and charging patterns
+
+### Energy Planners
+- **Infrastructure Sizing** - Determine charging station requirements
+- **Peak Demand Management** - Develop strategies for load balancing
+- **Renewable Integration** - Analyze PV + battery system effectiveness
+- **Grid Stability** - Assess V2G and grid battery impact on system stability
+
+## 📊 Analysis Capabilities
+
+- **Grid Load Curve Visualization** - EV charging overlay on base load
+- **Peak Demand Analysis** - Optimization effects and capacity utilization
+- **Time-of-Use Pattern Simulation** - Smart charging behavior modeling
+- **Maximum EV Capacity Calculation** - Infrastructure constraint analysis
+- **Strategy Impact Comparison** - TOU, PV, V2G, and grid battery effects
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -126,19 +169,19 @@ EV_simulation/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- **E-REDES** - Portuguese distribution system operator for grid data
-- **Streamlit Community** - For the excellent web framework
-- **Open Source Community** - For the various Python libraries used
+- **E-REDES** - Portuguese distribution system operator for grid data inspiration
+- **Streamlit Community** - Excellent web application framework
+- **Open Source Community** - Various Python libraries and tools
 
-## Contact
+## 📞 Contact
 
-For questions or support, please open an issue on GitHub or contact the development team.
+For questions, support, or contributions, please open an issue on GitHub or contact the development team.
 
 
  

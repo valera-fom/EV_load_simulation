@@ -339,6 +339,38 @@ if st.sidebar.button("⭮ Reset", type="primary", help="Reset all configuration 
 with st.sidebar:
     st.header("⚙️ Configuration")
     
+    # Quick Setup Guide
+    with st.expander("💡 Quick Setup Guide", expanded=False):
+        st.write("**🚀 Complete Setup Process:**")
+        st.write("**1. 📊 Data Setup (Required):**")
+        st.write("   • Upload Excel file with datetime + load data")
+        st.write("   • OR switch to 'Synthetic Generation'")
+        
+        st.write("**2. ⚙️ Configuration (Sidebar):**")
+        st.write("   • **EV:** Battery capacity & charging rate")
+        st.write("   • **Chargers:** AC charger count & power")
+        st.write("   • **Time:** Simulation duration, charging peaks, and EV count")
+        
+        st.write("**3. ⏰ Time of Use (Optional):**")
+        st.write("   • Enable 'Smart Charging' in strategies")
+        st.write("   • Configure peak/off-peak periods")
+        st.write("   • Set adoption percentages (total ≤ 100%)")
+        
+        st.write("**4. 🔧 Optimization (Optional):**")
+        st.write("   • **PV + Battery:** Solar charging & peak discharge")
+        st.write("   • **Grid Battery:** Utility-scale storage")
+        st.write("   • **V2G:** Bidirectional vehicle charging")
+        
+        st.write("**5. 🚀 Run & Analyze:**")
+        st.write("   • Click 'Run Simulation'")
+        st.write("   • View load curves & optimization effects")
+        st.write("   • Generate PDF reports")
+        
+        st.write("**🎯 Quick Start Options:**")
+        st.write("• **Apply Scenario** - Pre-configured setups")
+        st.write("• **Maximize EV Count Optimizer** - Find maximum EV count for your setup")
+        st.write("• **Dynamic Load Optimizer** - Dynamic load curve optimization for TOU")
+    
     # EV Configuration (single dynamic EV)
     with st.expander("🚗 EV Configuration", expanded=False):
         st.write("**Dynamic EV Parameters:**")
@@ -1094,6 +1126,7 @@ with st.sidebar:
         if 'smart_charging' in active_strategies:
             st.write("**⚡ Time of Use Configuration:**")
             st.write("Configure different charging periods with varying adoption rates based on time-of-use tariffs.")
+            st.info("💡 **TOU Logic:** Peak hours have higher electricity rates, so EVs charge during off-peak hours to save costs. Total adoption across all periods should not exceed 100%.")
             
             # Add toggles for number of TOU periods
             if 'tou_period_count' not in st.session_state:
@@ -4626,23 +4659,36 @@ with col2:
             st.write(f"• **Rejection Rate:** {len(results['rejected_evs']) / results['total_evs'] * 100:.1f}%")
         
     else:
-        st.header("ℹ️ Information")
-        st.write("**How to use this simulation:**")
-        st.write("**Option A:** Apply a scenario (recommended for quick start)")
-        st.write("**Option B:** Manual configuration:")
-        st.write("1. **Configure EVs** - Select EV model and initial charge level")
-        st.write("2. **Configure Chargers** - Select charger type and count")
-        st.write("3. **Set Time Control** - Configure simulation duration and charging peaks")
-        st.write("**Then (for both options):**")
-        st.write("4. **Enable Strategies** - Activate PV, V2G, or other optimization strategies")
-        st.write("5. **Select Data** - Choose real dataset or generate synthetic load curves")
-        st.write("6. **Run Simulation** - Execute the simulation and view results")
+        st.header("ℹ️ About This Simulation")
+        st.write("**🔬 EV Load Simulation Tool**")
+        st.write("This application simulates electric vehicle charging patterns and their impact on electrical grid load. It helps utilities, researchers, and planners understand how EV adoption affects power demand and optimize charging strategies.")
         
-        st.write("**📊 Results include:**")
-        st.write("• Grid load curves")
-        st.write("• EV charging patterns")
-        st.write("• Optimization strategy effects")
-        st.write("• Peak demand analysis")
+        st.write("**🎯 Key Features:**")
+        st.write("• **Real-time Simulation:** 48-hour EV charging scenarios")
+        st.write("• **Multiple Data Sources:** Real historical data or AI-generated synthetic curves")
+        st.write("• **Advanced Optimization:** Time-of-use pricing, PV+battery, V2G, grid storage")
+        st.write("• **Capacity Analysis:** Find optimal EV count for your infrastructure")
+        st.write("• **AI-Powered Optimization:** Gradient-based algorithms for peak demand reduction")
+        st.write("• **Professional Reports:** Generate detailed PDF analysis reports")
+        
+        st.write("**⚡ Optimization Strategies:**")
+        st.write("• **Smart Charging:** Shift charging to off-peak hours based on TOU rates")
+        st.write("• **PV + Battery:** Solar charging during day, discharge during peak demand")
+        st.write("• **Grid Battery:** Utility-scale storage for load balancing")
+        st.write("• **Vehicle-to-Grid (V2G):** Bidirectional charging for grid support")
+        
+        st.write("**📊 Analysis Capabilities:**")
+        st.write("• Grid load curve visualization with EV charging overlay")
+        st.write("• Peak demand analysis and optimization effects")
+        st.write("• Time-of-use charging pattern simulation")
+        st.write("• Maximum EV capacity calculation for given infrastructure")
+        st.write("• Strategy impact comparison (TOU, PV, V2G, grid battery)")
+        
+        st.write("**🔧 Technical Details:**")
+        st.write("• **Simulation Engine:** EV arrival/departure patterns with charging algorithms")
+        st.write("• **Data Processing:** Excel file import or AI-generated synthetic load curves")
+        st.write("• **Optimization:** Capacity analysis and gradient-based TOU optimization")
+        st.write("• **Output:** Interactive plots and downloadable PDF reports")
 
             # Check if we have valid data
 
