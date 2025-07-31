@@ -2927,25 +2927,56 @@ col1, col2 = st.columns([2, 1])
 with col1:
     st.header("📈 Simulation Results")
     
-    # Display current random seed
-    st.write(f"🎲 **Current Random Seed:** {st.session_state.random_seed}")
+    # Random seed control section
+    st.write("🎲 **Random Seed Control:**")
+    
+    # Initialize seed mode in session state if not exists
+    if 'seed_mode' not in st.session_state:
+        st.session_state.seed_mode = "manual"
+    
+    # Seed mode selection
+    seed_mode = st.radio(
+        "Seed Mode:",
+        ["Manual Control", "Auto Random"],
+        index=0 if st.session_state.seed_mode == "manual" else 1,
+        horizontal=True,
+        help="Manual Control: Use fixed seed, change manually. Auto Random: Generate new seed for each simulation."
+    )
+    
+    # Update session state
+    st.session_state.seed_mode = "manual" if seed_mode == "Manual Control" else "auto"
+    
+    # Display current seed info based on mode
+    if st.session_state.seed_mode == "manual":
+        st.write(f"📌 **Current Seed:** {st.session_state.random_seed} (Manual Mode)")
+    else:
+        st.write("🔄 **Auto Random Mode:** New seed generated for each simulation")
     
     # Create two columns for the buttons
     button_col1, button_col2 = st.columns([1, 1])
     
     with button_col1:
         if st.button("🚀 Run Simulation"):
+            # Handle auto random seed generation
+            if st.session_state.seed_mode == "auto":
+                import random
+                st.session_state.random_seed = random.randint(1, 10000)
+                st.info(f"🎲 Auto-generated new seed: {st.session_state.random_seed}")
+            
             # Clear any existing results first
             if 'simulation_results' in st.session_state:
                 del st.session_state.simulation_results
     
     with button_col2:
-        if st.button("🎲 Change Seed"):
-            # Generate a new random seed
-            import random
-            old_seed = st.session_state.random_seed
-            st.session_state.random_seed = random.randint(1, 10000)
-            st.rerun()
+        if st.session_state.seed_mode == "manual":
+            if st.button("🎲 Change Seed"):
+                # Generate a new random seed
+                import random
+                old_seed = st.session_state.random_seed
+                st.session_state.random_seed = random.randint(1, 10000)
+                st.rerun()
+        else:
+            st.write("")
         
         # Update session state with current values
         st.session_state.dynamic_ev = {
