@@ -60,6 +60,15 @@ except ImportError as e:
     st.stop()
 # Import optimization components
 
+# Import session manager
+try:
+    from pages.components.session_manager import render_session_manager_ui
+except ImportError as e:
+    st.error(f"Failed to import SessionManager: {e}")
+    # Create a dummy function if import fails
+    def render_session_manager_ui():
+        st.error("Session Manager not available")
+
 def _is_light_color(hex_color):
     """Helper function to determine if a hex color is light or dark for text contrast."""
     # Handle transparent and non-hex colors
@@ -78,6 +87,31 @@ def _is_light_color(hex_color):
     luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     
     return luminance > 0.5
+
+def ensure_session_state_arrays():
+    """Ensure all arrays in session state are numpy arrays."""
+    for key in st.session_state:
+        if isinstance(st.session_state[key], list):
+            try:
+                st.session_state[key] = np.array(st.session_state[key])
+            except:
+                pass  # Keep as list if conversion fails
+        elif isinstance(st.session_state[key], dict):
+            # Recursively check dictionaries (like simulation_results)
+            for subkey in st.session_state[key]:
+                if isinstance(st.session_state[key][subkey], list):
+                    try:
+                        st.session_state[key][subkey] = np.array(st.session_state[key][subkey])
+                    except:
+                        pass  # Keep as list if conversion fails
+                elif isinstance(st.session_state[key][subkey], dict):
+                    # Handle nested dictionaries (like simulation_results with nested data)
+                    for nested_key in st.session_state[key][subkey]:
+                        if isinstance(st.session_state[key][subkey][nested_key], list):
+                            try:
+                                st.session_state[key][subkey][nested_key] = np.array(st.session_state[key][subkey][nested_key])
+                            except:
+                                pass  # Keep as list if conversion fails
 
 # Portugal EV Scenarios dictionary
 portugal_ev_scenarios = {
@@ -252,6 +286,22 @@ if 'dynamic_ev' not in st.session_state:
     }
 
 st.set_page_config(page_title="Forecasting", layout="wide")
+
+# Ensure all arrays in session state are numpy arrays
+ensure_session_state_arrays()
+
+# Initialize graph control variables in session state if they don't exist
+if 'show_battery_effects' not in st.session_state:
+    st.session_state.show_battery_effects = True
+if 'show_average_line' not in st.session_state:
+    st.session_state.show_average_line = True
+if 'show_legend' not in st.session_state:
+    st.session_state.show_legend = True
+if 'smooth_graph' not in st.session_state:
+    st.session_state.smooth_graph = False
+if 'show_safety_margin' not in st.session_state:
+    st.session_state.show_safety_margin = True
+
 st.title("⚡ EV Load Forecasting")
 st.markdown("Forecast EV charging load patterns with configurable parameters")
 
@@ -2643,6 +2693,10 @@ with st.sidebar:
             st.error(f"❌ Error in PDF generator: {e}")
             st.info("💡 This might be due to missing dependencies or OpenSSL compatibility issues.")
 
+    # Session Manager
+    with st.expander("🔄 Session Manager", expanded=False):
+        render_session_manager_ui()
+
     # Dataset Selection
     with st.expander("📊 Dataset Selection", expanded=False):
         # Data source selection
@@ -3853,19 +3907,29 @@ with col1:
         col_controls1, col_controls2, col_controls3 = st.columns(3)
         
         with col_controls1:
-            show_battery_effects = st.checkbox("Show Battery Effects", value=True, key="show_battery_effects",
+            show_battery_effects = st.checkbox("Show Battery Effects", 
+                                             value=st.session_state.get('show_battery_effects', True), 
+                                             key="show_battery_effects",
                                              help="Display PV battery, grid battery, and V2G effects on the graph")
-            show_average_line = st.checkbox("Show Average Line", value=True, key="show_average_line",
+            show_average_line = st.checkbox("Show Average Line", 
+                                          value=st.session_state.get('show_average_line', True), 
+                                          key="show_average_line",
                                           help="Display horizontal average line on the bottom graph")
         
         with col_controls2:
-            show_legend = st.checkbox("Show Legend", value=True, key="show_legend",
+            show_legend = st.checkbox("Show Legend", 
+                                    value=st.session_state.get('show_legend', True), 
+                                    key="show_legend",
                                     help="Display graph legend")
-            smooth_graph = st.checkbox("Smooth Graph", value=False, key="smooth_graph",
+            smooth_graph = st.checkbox("Smooth Graph", 
+                                     value=st.session_state.get('smooth_graph', False), 
+                                     key="smooth_graph",
                                      help="Use smooth lines instead of stepped lines for the graph")
         
         with col_controls3:
-            show_safety_margin = st.checkbox("Show Safety Margin", value=True, key="show_safety_margin",
+            show_safety_margin = st.checkbox("Show Safety Margin", 
+                                           value=st.session_state.get('show_safety_margin', True), 
+                                           key="show_safety_margin",
                                            help="Display 20% safety margin line")
         
         
@@ -3877,6 +3941,17 @@ with col1:
         # Define time axis - show 24-hour periods instead of continuous hours
         sim_duration = st.session_state.get('sim_duration', 36)  # Get from UI slider
         max_plot_points = sim_duration * 60  # Convert to minutes
+        
+        # Ensure all arrays in results are numpy arrays
+        def ensure_numpy_array(data):
+            if isinstance(data, list):
+                return np.array(data)
+            return data
+        
+        # Convert all array data in results to numpy arrays
+        for key in results:
+            if isinstance(results[key], list):
+                results[key] = ensure_numpy_array(results[key])
         
         # Limit the data to the UI slider duration for plotting
         plot_load_curve = results['load_curve'][:max_plot_points]

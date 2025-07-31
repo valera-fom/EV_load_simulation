@@ -60,3 +60,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Session Manager
+saved_sessions/
