@@ -311,6 +311,7 @@ with st.sidebar:
             ev_ac != st.session_state.dynamic_ev['AC'] or
             ev_soc/100 != st.session_state.ev_soc):
             st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
             # Don't clear simulation_results - let them persist
 
     # Charger Configuration
@@ -340,12 +341,19 @@ with st.sidebar:
         if (ac_rate != st.session_state.charger_config.get('ac_rate', ac_rate) or 
             ac_count != st.session_state.charger_config.get('ac_count', ac_count)):
             st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
             # Don't clear simulation_results - let them persist
 
     # Time Control Menu
     with st.expander("⏰ Time Control", expanded=False):
         st.write("**Simulation Duration:**")
         sim_duration = st.slider("Duration (hours)", min_value=1, max_value=48, value=36)
+        
+        # Clear simulation results if duration changed
+        if sim_duration != st.session_state.get('sim_duration', 36):
+            st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
+        
         st.session_state.sim_duration = sim_duration  # Store for plotting
         
         st.write("**Peak Configuration:**")
@@ -437,6 +445,10 @@ with st.sidebar:
                     'quantity': new_quantity,
                     'enabled': True  # Always enabled
                 }
+                
+                # Clear simulation results if time peak parameters changed
+                st.session_state.simulation_just_run = False
+                st.session_state.simulation_run = False  # Prevent automatic reruns
 
     # Portugal EV Scenarios Presets
     with st.expander("🎯 Portugal EV Scenarios", expanded=False):
@@ -1868,6 +1880,7 @@ with st.sidebar:
 
         # Clear simulation results if time of use parameters changed
         st.session_state.simulation_just_run = False
+        st.session_state.simulation_run = False  # Prevent automatic reruns
         # Don't clear simulation_results - let them persist
         
         # PV + Battery configuration
@@ -2048,6 +2061,7 @@ with st.sidebar:
             
             # Clear simulation results if PV battery parameters changed
             st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
             # Don't clear simulation_results - let them persist
 
         # Grid-Charged Batteries configuration
@@ -2189,6 +2203,7 @@ with st.sidebar:
             
             # Clear simulation results if grid battery parameters changed
             st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
             # Don't clear simulation_results - let them persist
         
         # V2G (Vehicle-to-Grid) configuration
@@ -2346,6 +2361,7 @@ with st.sidebar:
             
             # Clear simulation results if V2G parameters changed
             st.session_state.simulation_just_run = False
+            st.session_state.simulation_run = False  # Prevent automatic reruns
             # Don't clear simulation_results - let them persist
 
  # Reverse Simulation (Capacity Analysis)
@@ -2956,13 +2972,20 @@ with col1:
     )
     
     # Update session state
+    old_seed_mode = st.session_state.seed_mode
     st.session_state.seed_mode = "manual" if seed_mode == "Manual Control" else "auto"
+    
+    # Generate new seed immediately when switching to auto mode
+    if old_seed_mode == "manual" and st.session_state.seed_mode == "auto":
+        import random
+        st.session_state.random_seed = random.randint(1, 10000)
+        st.info(f"🎲 Switched to Auto Random Mode - Generated new seed: {st.session_state.random_seed}")
     
     # Display current seed info based on mode
     if st.session_state.seed_mode == "manual":
         st.write(f"📌 **Current Seed:** {st.session_state.random_seed} (Manual Mode)")
     else:
-        st.write("🔄 **Auto Random Mode:** New seed generated for each simulation")
+        st.write(f"🔄 **Auto Random Mode:** Current seed: {st.session_state.random_seed} (will change on next run)")
     
     # Create two columns for the buttons
     button_col1, button_col2 = st.columns([1, 1])
@@ -2975,74 +2998,74 @@ with col1:
                 st.session_state.random_seed = random.randint(1, 10000)
                 st.info(f"🎲 Auto-generated new seed: {st.session_state.random_seed}")
             
-        # Clear any existing results first
-        if 'simulation_results' in st.session_state:
-            del st.session_state.simulation_results
-        
-        # Update session state with current values
-        st.session_state.dynamic_ev = {
-            'capacity': st.session_state.dynamic_ev['capacity'],
-            'AC': st.session_state.dynamic_ev['AC']
-        }
-        st.session_state.charger_config = {
-            'ac_rate': st.session_state.charger_config['ac_rate'],
-            'ac_count': st.session_state.charger_config['ac_count']
-        }
-        
-        # Set simulation run flag and just_run flag
-        st.session_state.simulation_run = True
-        st.session_state.simulation_just_run = True
-        
-        # Handle synthetic data generation if needed
-        if data_source == "Synthetic Generation" and (power_values is None or len(power_values) == 0):
-            st.info("🎲 Generating synthetic load curve based on current parameters...")
-            try:
-                # Import the portable load generator
-                import sys
-                import os
-                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                
-                from portable_load_generator import generate_load_curve
-                
-                # Get current synthetic parameters
-                synthetic_params = st.session_state.get('synthetic_params', {})
-                season = synthetic_params.get('season', 'winter')
-                day_type = synthetic_params.get('day_type', 'weekday')
-                max_power = synthetic_params.get('max_power', 400)
-                diversity_mode = synthetic_params.get('diversity_mode', 'high')
-                
-                # Generate the load curve
-                result = generate_load_curve(
-                    season=season,
-                    day_type=day_type,
-                    max_power=max_power,
-                    diversity_mode=diversity_mode,
-                    models_dir="portable_models",
-                    return_timestamps=True
-                )
-                
-                # Store the generated data in session state
-                st.session_state.synthetic_load_curve = result['load_curve']
-                st.session_state.synthetic_timestamps = result['timestamps']
-                st.session_state.synthetic_metadata = result['metadata']
-                
-                # Update power_values for simulation
-                power_values = result['load_curve']
-                st.success(f"✅ Synthetic load curve generated automatically for simulation!")
-                
-            except Exception as e:
-                st.error(f"❌ Error generating synthetic data: {e}")
-                st.write("Please ensure the portable_models directory contains the trained models.")
-                st.stop()
-        
-        # Run simulation and store results
-        if power_values is not None:
-            # Create dynamic EV model
-            dynamic_ev_model = {
-                'name': 'Custom EV',
+            # Clear any existing results first
+            if 'simulation_results' in st.session_state:
+                del st.session_state.simulation_results
+            
+            # Update session state with current values
+            st.session_state.dynamic_ev = {
                 'capacity': st.session_state.dynamic_ev['capacity'],
                 'AC': st.session_state.dynamic_ev['AC']
             }
+            st.session_state.charger_config = {
+                'ac_rate': st.session_state.charger_config['ac_rate'],
+                'ac_count': st.session_state.charger_config['ac_count']
+            }
+            
+            # Set simulation run flag and just_run flag
+            st.session_state.simulation_run = True
+            st.session_state.simulation_just_run = True
+        
+            # Handle synthetic data generation if needed
+            if data_source == "Synthetic Generation" and (power_values is None or len(power_values) == 0):
+                st.info("🎲 Generating synthetic load curve based on current parameters...")
+                try:
+                    # Import the portable load generator
+                    import sys
+                    import os
+                    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    
+                    from portable_load_generator import generate_load_curve
+                    
+                    # Get current synthetic parameters
+                    synthetic_params = st.session_state.get('synthetic_params', {})
+                    season = synthetic_params.get('season', 'winter')
+                    day_type = synthetic_params.get('day_type', 'weekday')
+                    max_power = synthetic_params.get('max_power', 400)
+                    diversity_mode = synthetic_params.get('diversity_mode', 'high')
+                    
+                    # Generate the load curve
+                    result = generate_load_curve(
+                        season=season,
+                        day_type=day_type,
+                        max_power=max_power,
+                        diversity_mode=diversity_mode,
+                        models_dir="portable_models",
+                        return_timestamps=True
+                    )
+                    
+                    # Store the generated data in session state
+                    st.session_state.synthetic_load_curve = result['load_curve']
+                    st.session_state.synthetic_timestamps = result['timestamps']
+                    st.session_state.synthetic_metadata = result['metadata']
+                    
+                    # Update power_values for simulation
+                    power_values = result['load_curve']
+                    st.success(f"✅ Synthetic load curve generated automatically for simulation!")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error generating synthetic data: {e}")
+                    st.write("Please ensure the portable_models directory contains the trained models.")
+                    st.stop()
+            
+            # Run simulation and store results
+            if power_values is not None and st.session_state.simulation_run:
+                # Create dynamic EV model
+                dynamic_ev_model = {
+                    'name': 'Custom EV',
+                    'capacity': st.session_state.dynamic_ev['capacity'],
+                    'AC': st.session_state.dynamic_ev['AC']
+                }
             
             # Temporarily update EV_MODELS with our dynamic EV
             original_ev_models = EV_MODELS.copy()
@@ -3804,6 +3827,9 @@ with col1:
                 EV_MODELS.update(original_ev_models)
                 CHARGER_MODELS.clear()
                 CHARGER_MODELS.update(original_charger_models)
+                
+                # Reset simulation run flag to prevent automatic reruns
+                st.session_state.simulation_run = False
     
     with button_col2:
         if st.session_state.seed_mode == "manual":

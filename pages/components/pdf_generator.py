@@ -176,7 +176,20 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             # Extract comprehensive parameters from simulation results
             params = {}
             if 'simulation_parameters' in simulation_results:
-                params = simulation_results['simulation_parameters']
+                # Filter out optimization-related parameters
+                optimization_keys = [
+                    'Smart Charging Applied', 'Smart Charging %', 'PV + Battery Applied', 
+                    'PV Adoption %', 'Grid Battery Applied', 'V2G Applied',
+                    'Battery Capacity', 'Max Charge Rate', 'Max Discharge Rate',
+                    'PV Start Hour', 'PV Duration', 'Solar Energy %',
+                    'Grid Battery Adoption %', 'Grid Battery Capacity', 'Grid Battery Max Rate',
+                    'Grid Battery Charge Start', 'Grid Battery Charge Duration',
+                    'Grid Battery Discharge Start', 'Grid Battery Discharge Duration',
+                    'V2G Adoption %', 'V2G Max Discharge Rate', 'V2G Discharge Start',
+                    'V2G Discharge Duration', 'V2G Recharge Arrival'
+                ]
+                params = {k: v for k, v in simulation_results['simulation_parameters'].items() 
+                         if k not in optimization_keys}
             
             # Add additional comprehensive parameters from session state
             additional_params = {}
@@ -191,21 +204,12 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             
             # EV Configuration details
             ev_config = {}
-            if 'ev_calculator_results' in st.session_state:
-                ev_results = st.session_state.ev_calculator_results
-                if 'battery_capacity' in ev_results:
-                    ev_config['Battery Capacity'] = f"{ev_results['battery_capacity']} kWh"
-                if 'charging_power' in ev_results:
-                    ev_config['Charging Power'] = f"{ev_results['charging_power']} kW"
-                if 'initial_soc' in ev_results:
-                    ev_config['Initial SOC'] = f"{ev_results['initial_soc']}%"
+            if 'dynamic_ev' in st.session_state:
+                ev_config['Battery Capacity'] = f"{st.session_state.dynamic_ev.get('capacity', 'N/A')} kWh"
+                ev_config['Charging Power'] = f"{st.session_state.dynamic_ev.get('AC', 'N/A')} kW"
+                ev_config['Initial SOC'] = f"{int(st.session_state.get('ev_soc', 0.2) * 100)}%"
             
-            # Charger Configuration details
-            charger_config = {}
-            if 'charger_calculator_results' in st.session_state:
-                charger_results = st.session_state.charger_calculator_results
-                if 'total_capacity' in charger_results:
-                    charger_config['Charging Power'] = f"{charger_results['total_capacity']} kW"
+
             
         
             
@@ -214,18 +218,18 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             
             # Add EV and Charger configurations as separate sections
             if ev_config:
-                all_params['🚗 EV Configuration'] = ""
+                all_params['EV Configuration'] = ""
                 for key, value in ev_config.items():
                     all_params[f"  • {key}"] = value
             
-            if charger_config:
-                all_params['🔌 Charger Configuration'] = ""
-                for key, value in charger_config.items():
-                    all_params[f"  • {key}"] = value
+            
+        
             
             # Create table data
             table_data = [['Parameter', 'Value']]
-            for key, value in all_params.items():
+            config_rows = []  # Track rows that need highlighting
+            
+            for i, (key, value) in enumerate(all_params.items()):
                 if isinstance(value, bool):
                     formatted_value = "True" if value else "False"
                 elif isinstance(value, (int, float)):
@@ -233,10 +237,16 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 else:
                     formatted_value = str(value)
                 table_data.append([key, formatted_value])
+                
+                # Track configuration section rows for highlighting
+                if key in ['EV Configuration', 'Charger Configuration']:
+                    config_rows.append(i + 1)  # +1 because of header row
             
             # Create table with beautiful styling
             table = Table(table_data, colWidths=[4*inch, 3*inch])
-            table.setStyle(TableStyle([
+            
+            # Base table style
+            table_style = [
                 ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), white),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -251,7 +261,17 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
                 ('TOPPADDING', (0, 1), (-1, -1), 8),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-            ]))
+            ]
+            
+            # Add highlighting for configuration sections
+            for row in config_rows:
+                table_style.extend([
+                    ('BACKGROUND', (0, row), (-1, row), HexColor('#e3f2fd')),
+                    ('FONTNAME', (0, row), (-1, row), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, row), (-1, row), 11),
+                ])
+            
+            table.setStyle(TableStyle(table_style))
             
             story.append(table)
             story.append(Spacer(1, 15))
