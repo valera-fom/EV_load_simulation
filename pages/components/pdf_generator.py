@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+PDF Generator for EV Simulation Reports
+Supports both light and dark themes with beautiful styling
+"""
+
 import hashlib
 import _hashlib
 
@@ -47,7 +53,7 @@ except ImportError as e:
     REPORTLAB_AVAILABLE = False
     st.warning(f"ReportLab not available: {e}")
 
-def create_pdf_report(simulation_results, simulation_description, include_options):
+def create_pdf_report(simulation_results, simulation_description, include_options, theme='light'):
     """
     Generate a beautiful PDF report with simulation results and graphs using ReportLab.
     Uses only built-in fonts and no web dependencies to avoid SSL issues.
@@ -56,13 +62,14 @@ def create_pdf_report(simulation_results, simulation_description, include_option
         simulation_results (dict): Simulation results from session state
         simulation_description (str): User-provided description
         include_options (dict): Dictionary of what to include in the report
+        theme (str): 'light' or 'dark' theme for the PDF
     
     Returns:
         tuple: (success: bool, error_message: str, pdf_data: bytes)
     """
     if REPORTLAB_AVAILABLE:
         try:
-            return create_reportlab_pdf(simulation_results, simulation_description, include_options)
+            return create_reportlab_pdf(simulation_results, simulation_description, include_options, theme)
         except Exception as e:
             st.warning(f"ReportLab failed ({str(e)}), using matplotlib fallback...")
             return create_matplotlib_pdf(simulation_results, simulation_description, include_options)
@@ -71,9 +78,64 @@ def create_pdf_report(simulation_results, simulation_description, include_option
     return create_matplotlib_pdf(simulation_results, simulation_description, include_options)
 
 
-def create_reportlab_pdf(simulation_results, simulation_description, include_options):
+def create_reportlab_pdf(simulation_results, simulation_description, include_options, theme='light'):
     """Create beautiful PDF using ReportLab with comprehensive data and professional styling."""
     try:
+        # Define theme colors
+        if theme == 'dark':
+            # Dark theme colors - modern dark theme like the image
+            bg_color = HexColor('#0f0f0f')  # Very dark background
+            text_color = HexColor('#ffffff')  # Pure white text
+            title_color = HexColor('#3b82f6')  # Modern blue
+            subtitle_color = HexColor('#60a5fa')  # Lighter blue
+            table_header_bg = HexColor('#1f2937')  # Dark gray header
+            table_row_bg1 = HexColor('#111827')  # Very dark row
+            table_row_bg2 = HexColor('#1f2937')  # Slightly lighter row
+            table_grid = HexColor('#374151')  # Medium gray grid
+            highlight_color = HexColor('#1e40af')  # Medium blue for highlighting (between previous bright and current dark)
+        else:
+            # Light theme colors (current)
+            bg_color = HexColor('#ffffff')
+            text_color = HexColor('#000000')
+            title_color = HexColor('#1f77b4')
+            subtitle_color = HexColor('#2c3e50')
+            table_header_bg = HexColor('#1f77b4')
+            table_row_bg1 = HexColor('#f8f9fa')
+            table_row_bg2 = HexColor('#ffffff')
+            table_grid = HexColor('#dee2e6')
+            highlight_color = HexColor('#e3f2fd')  # Light blue for highlighting
+        
+        def get_table_style(highlight_rows=None, center_align=False):
+            """Helper function to create theme-aware table styles."""
+            style = [
+                ('BACKGROUND', (0, 0), (-1, 0), table_header_bg),
+                ('TEXTCOLOR', (0, 0), (-1, 0), white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER' if center_align else 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('TOPPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), table_row_bg1),
+                ('GRID', (0, 0), (-1, -1), 1, table_grid),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [table_row_bg1, table_row_bg2]),
+                ('TOPPADDING', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+                ('TEXTCOLOR', (0, 1), (-1, -1), text_color),
+            ]
+            
+            # Add highlighting for specific rows
+            if highlight_rows:
+                for row_idx in highlight_rows:
+                    style.extend([
+                        ('BACKGROUND', (0, row_idx), (-1, row_idx), highlight_color),
+                        ('FONTNAME', (0, row_idx), (-1, row_idx), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, row_idx), (-1, row_idx), 11),
+                    ])
+            
+            return style
+        
         # Create PDF in memory
         pdf_buffer = io.BytesIO()
         
@@ -87,7 +149,15 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             bottomMargin=1.5*cm
         )
         
+        # Set page background color for dark theme
+        if theme == 'dark':
+            def add_page_background(canvas, doc):
+                canvas.setFillColor(bg_color)
+                canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1)
+        else:
+            add_page_background = None
 
+        
         
         # Get styles
         styles = getSampleStyleSheet()
@@ -99,7 +169,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             fontSize=28,
             spaceAfter=20,
             alignment=TA_CENTER,
-            textColor=HexColor('#1f77b4'),
+            textColor=title_color,
             fontName='Helvetica-Bold',
             spaceBefore=10
         )
@@ -110,7 +180,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             fontSize=18,
             spaceAfter=15,
             spaceBefore=25,
-            textColor=HexColor('#2c3e50'),
+            textColor=subtitle_color,
             fontName='Helvetica-Bold',
             leftIndent=0
         )
@@ -121,7 +191,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             fontSize=14,
             spaceAfter=10,
             spaceBefore=20,
-            textColor=HexColor('#1f77b4'),
+            textColor=title_color,
             fontName='Helvetica-Bold',
             leftIndent=0
         )
@@ -132,7 +202,8 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             fontSize=11,
             spaceAfter=6,
             fontName='Helvetica',
-            leftIndent=0
+            leftIndent=0,
+            textColor=text_color
         )
         
         table_header_style = ParagraphStyle(
@@ -207,6 +278,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                     charger_config['Charging Power'] = f"{charger_results['total_capacity']} kW"
             
         
+        
             
             # Merge parameters, prioritizing simulation_results
             all_params = {**additional_params, **params}
@@ -235,22 +307,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             
             # Create table with beautiful styling
             table = Table(table_data, colWidths=[4*inch, 3*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('TOPPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8f9fa')),
-                ('GRID', (0, 0), (-1, -1), 1, HexColor('#dee2e6')),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
-                ('TOPPADDING', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-            ]))
+            table.setStyle(TableStyle(get_table_style()))
             
             story.append(table)
             story.append(Spacer(1, 15))
@@ -322,34 +379,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             
             # Create table with beautiful styling
             table = Table(table_data, colWidths=[4*inch, 3*inch])
-            
-            # Base table style
-            table_style = [
-                ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),  # Blue header
-                ('TEXTCOLOR', (0, 0), (-1, 0), white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('TOPPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8f9fa')),
-                ('GRID', (0, 0), (-1, -1), 1, HexColor('#dee2e6')),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
-                ('TOPPADDING', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-            ]
-            
-            # Add highlighting for strategy rows
-            for row_idx in strategy_rows:
-                table_style.extend([
-                    ('BACKGROUND', (0, row_idx), (-1, row_idx), HexColor('#e3f2fd')),  # Light blue background with low opacity
-                    ('FONTNAME', (0, row_idx), (-1, row_idx), 'Helvetica-Bold'),  # Bold font
-                    ('FONTSIZE', (0, row_idx), (-1, row_idx), 11),  # Slightly larger font
-                ])
-            
-            table.setStyle(TableStyle(table_style))
+            table.setStyle(TableStyle(get_table_style(strategy_rows)))
             
             story.append(table)
             story.append(Spacer(1, 15))
@@ -366,14 +396,89 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 main_fig = st.session_state.main_simulation_figure
             
             if main_fig:
-                # Save figure as image with proper scaling
+                # Save figure as image with enhanced vibrancy and contrast
                 img_buffer = io.BytesIO()
-                main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
-                               facecolor='white', edgecolor='none')
+                
+                # Set figure properties for better visibility in PDF with theme-appropriate background
+                if theme == 'dark':
+                    # Dark theme for graphs - much lighter background
+                    main_fig.patch.set_facecolor('#9ca3af')  # Much lighter gray background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to much lighter for better contrast
+                        ax.set_facecolor('#d1d5db')  # Very light gray background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with dark background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#6b7280')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#000000')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Ensure title and axis labels are dark for better contrast
+                        ax.xaxis.label.set_color('#000000')
+                        ax.yaxis.label.set_color('#000000')
+                        ax.title.set_color('#000000')
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#000000')
+                        ax.spines['top'].set_color('#000000')
+                        ax.spines['left'].set_color('#000000')
+                        ax.spines['right'].set_color('#000000')
+                    
+                    # Save with higher DPI and better compression
+                    main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                   facecolor='#9ca3af', edgecolor='none', 
+                                   pad_inches=0.1, transparent=False)
+                else:
+                    # Light theme for graphs
+                    main_fig.patch.set_facecolor('#f0f0f0')  # Light gray background
+                    main_fig.patch.set_alpha(1.0)
+                    
+                    # Enhance all axes for better visibility
+                    for ax in main_fig.axes:
+                        # Set background to light gray for better contrast
+                        ax.set_facecolor('#f5f5f5')  # Slightly darker than figure background
+                        ax.patch.set_alpha(1.0)
+                        
+                        # Make grid lines more visible with darker background
+                        ax.grid(True, alpha=0.4, linewidth=0.8, color='#666666')
+                        
+                        # Enhance line colors and thickness for better visibility
+                        for line in ax.lines:
+                            line.set_linewidth(2.5)  # Even thicker lines
+                            line.set_alpha(1.0)      # Full opacity
+                        
+                        # Enhance text elements for better contrast
+                        ax.tick_params(axis='both', which='major', labelsize=11, colors='#333333')
+                        ax.xaxis.label.set_size(13)
+                        ax.yaxis.label.set_size(13)
+                        ax.title.set_size(15)
+                        
+                        # Set axis colors for better visibility
+                        ax.spines['bottom'].set_color('#333333')
+                        ax.spines['top'].set_color('#333333')
+                        ax.spines['left'].set_color('#333333')
+                        ax.spines['right'].set_color('#333333')
+                    
+                    # Save with higher DPI and better compression
+                    main_fig.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight', 
+                                   facecolor='#f0f0f0', edgecolor='none', 
+                                   pad_inches=0.1, transparent=False)
                 img_buffer.seek(0)
                 
-                # Add image to PDF with proper dimensions (maintain aspect ratio)
-                img = Image(img_buffer, width=6.5*inch, height=4.5*inch, kind='proportional')
+                # Add image to PDF with full width (maintain aspect ratio)
+                img = Image(img_buffer, width=7.5*inch, height=5.5*inch, kind='proportional')
                 story.append(img)
             else:
                 story.append(Paragraph("No simulation graphs available", normal_style))
@@ -407,16 +512,16 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 min_hour = min_step // 60    # Convert minutes to hours
                 
                 # Calculate hours above peak thresholds
-                hours_above_90 = np.sum(load_curve > (0.9 * peak_load)) // 60  # Convert minutes to hours
-                hours_above_80 = np.sum(load_curve > (0.8 * peak_load)) // 60  # Convert minutes to hours
-                hours_above_70 = np.sum(load_curve > (0.7 * peak_load)) // 60  # Convert minutes to hours
+                hours_above_90 = np.sum((load_curve > (0.9 * peak_load)).astype(int)) // 60  # Convert minutes to hours
+                hours_above_80 = np.sum((load_curve > (0.8 * peak_load)).astype(int)) // 60  # Convert minutes to hours
+                hours_above_70 = np.sum((load_curve > (0.7 * peak_load)).astype(int)) // 60  # Convert minutes to hours
                 
                 additional_stats = {
                     'Maximum Load': peak_load,
                     'Average Load': mean_load,
                     'Minimum Load': np.min(load_curve),
                     'Load Range': peak_load - np.min(load_curve),
-                    'Peak-to-Average Ratio': peak_load / mean_load if mean_load > 0 else 0,
+                    'Peak-to-Average Ratio': peak_load / mean_load if float(mean_load) > 0 else 0,
                     'Peak Load Time': f"Hour {peak_hour}",
                     'Minimum Load Time': f"Hour {min_hour}",
                 }
@@ -443,7 +548,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                         load_curve_array = load_curve_array[:min_length]
                         grid_limit = grid_limit[:min_length]
                     
-                    grid_violations = np.sum(load_curve_array > grid_limit)
+                    grid_violations = np.sum((load_curve_array > grid_limit).astype(int))
                     max_violation = np.max(load_curve_array - grid_limit) if np.any(load_curve_array > grid_limit) else 0
                     performance_metrics.update({
                         'Grid Compliance %': f"{((len(load_curve_array) - grid_violations) / len(load_curve_array) * 100):.1f}%",
@@ -474,22 +579,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             
             # Create table with beautiful styling
             table = Table(table_data, colWidths=[4*inch, 3*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), white),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('TOPPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8f9fa')),
-                ('GRID', (0, 0), (-1, -1), 1, HexColor('#dee2e6')),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
-                ('TOPPADDING', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-            ]))
+            table.setStyle(TableStyle(get_table_style()))
             
             story.append(table)
             story.append(Spacer(1, 15))
@@ -524,7 +614,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             elif 'active_strategies' in st.session_state:
                 tou_enabled = 'smart_charging' in st.session_state.active_strategies
             
-            if tou_data and 'periods' in tou_data and tou_data['periods']:
+            if tou_data and 'periods' in tou_data and len(tou_data['periods']) > 0:
                 # Create table data with compact hour format
                 table_data = [['Period', 'Hours', 'Adoption %']]
                 for i, period in enumerate(tou_data['periods']):
@@ -570,22 +660,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 
                 # Create table with beautiful styling (adjusted column widths)
                 table = Table(table_data, colWidths=[2*inch, 2*inch, 2*inch])
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), white),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('TOPPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8f9fa')),
-                    ('GRID', (0, 0), (-1, -1), 1, HexColor('#dee2e6')),
-                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 1), (-1, -1), 10),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
-                    ('TOPPADDING', (0, 1), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-                ]))
+                table.setStyle(TableStyle(get_table_style(center_align=True)))
                 
                 story.append(table)
                 
@@ -622,22 +697,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 
                 # Create table with beautiful styling
                 table = Table(table_data, colWidths=[4*inch, 3*inch])
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1f77b4')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), white),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('TOPPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8f9fa')),
-                    ('GRID', (0, 0), (-1, -1), 1, HexColor('#dee2e6')),
-                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                    ('FONTSIZE', (0, 1), (-1, -1), 10),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [HexColor('#f8f9fa'), HexColor('#ffffff')]),
-                    ('TOPPADDING', (0, 1), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-                ]))
+                table.setStyle(TableStyle(get_table_style()))
                 
                 story.append(table)
             else:
@@ -650,8 +710,12 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
             canvas.setSubject("Electric Vehicle Load Simulation Analysis")
             canvas.setCreator("EV Simulation Tool - PDF Generator")
         
-        # Build the PDF with metadata
-        doc.build(story, onFirstPage=add_metadata, onLaterPages=add_metadata)
+        # Build the PDF with metadata and page background
+        if add_page_background:
+            doc.build(story, onFirstPage=lambda canvas, doc: [add_page_background(canvas, doc), add_metadata(canvas, doc)], 
+                     onLaterPages=lambda canvas, doc: [add_page_background(canvas, doc), add_metadata(canvas, doc)])
+        else:
+            doc.build(story, onFirstPage=add_metadata, onLaterPages=add_metadata)
         
         # Get the PDF data
         pdf_buffer.seek(0)
@@ -669,6 +733,17 @@ def render_pdf_save_ui():
     Render the PDF save UI with content selection options.
     """
     st.markdown("### 📄 Save Results")
+    
+    # Theme selection
+    st.markdown("**Choose PDF theme:**")
+    theme = st.radio(
+        "Theme:",
+        ["Light", "Dark"],
+        index=0,
+        horizontal=True,
+        help="Light: Clean white background. Dark: Modern dark theme with better contrast."
+    )
+    theme = theme.lower()  # Convert to lowercase for the function
     
     # Content selection
     st.markdown("**Select content to include in the report:**")
@@ -726,7 +801,8 @@ def render_pdf_save_ui():
                 success, error_message, pdf_data = create_pdf_report(
                     st.session_state.simulation_results,
                     simulation_description,
-                    include_options
+                    include_options,
+                    theme
                 )
                 
                 if success:

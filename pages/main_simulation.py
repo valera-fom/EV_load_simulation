@@ -2982,11 +2982,19 @@ with st.sidebar:
         # Add slider for available load fraction and store in session state
         if 'available_load_fraction' not in st.session_state:
             st.session_state['available_load_fraction'] = 0.8
+        else:
+            # Ensure it's a float, not a list
+            current_value = st.session_state['available_load_fraction']
+            if isinstance(current_value, list):
+                st.session_state['available_load_fraction'] = float(current_value[0]) if current_value else 0.8
+            elif not isinstance(current_value, (int, float)):
+                st.session_state['available_load_fraction'] = 0.8
+        
         st.session_state['available_load_fraction'] = st.slider(
             "Available Load Fraction",
             min_value=0.1,
             max_value=1.0,
-            value=st.session_state['available_load_fraction'],
+            value=float(st.session_state['available_load_fraction']),
             step=0.05,
             help="Fraction of the grid limit that can be used (e.g. 0.8 = 80% safety margin)"
         )

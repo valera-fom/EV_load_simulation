@@ -73,7 +73,7 @@ class SessionManager:
             # Add metadata
             session_data['_metadata'] = {
                 'saved_at': datetime.now().isoformat(),
-                'session_name': session_name or f"Auto-saved session {timestamp}",
+                'session_name': session_name or "Unnamed Session",
                 'version': '1.0'
             }
             
@@ -280,7 +280,16 @@ def render_session_manager_ui():
             st.info("No saved sessions found. Save a session first!")
         else:
             # Create a selectbox for session selection
-            session_options = [f"{s['name']} ({s['saved_at'][:19]})" for s in sessions]
+            session_options = []
+            for s in sessions:
+                # Parse the ISO timestamp and format as DD.MM.YY HH:MM
+                try:
+                    saved_date = datetime.fromisoformat(s['saved_at'].replace('Z', '+00:00'))
+                    formatted_date = saved_date.strftime("%d.%m.%y %H:%M")
+                except:
+                    formatted_date = s['saved_at'][:16]  # Fallback to just the date and time part
+                
+                session_options.append(f"{s['name']} ({formatted_date})")
             selected_index = st.selectbox(
                 "Select a session to load:",
                 range(len(session_options)),
@@ -295,7 +304,13 @@ def render_session_manager_ui():
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write(f"**Name:** {selected_session['name']}")
-                    st.write(f"**Saved:** {selected_session['saved_at'][:19]}")
+                    # Format the saved date as DD.MM.YY HH:MM
+                    try:
+                        saved_date = datetime.fromisoformat(selected_session['saved_at'].replace('Z', '+00:00'))
+                        formatted_date = saved_date.strftime("%d.%m.%y %H:%M")
+                    except:
+                        formatted_date = selected_session['saved_at'][:16]  # Fallback
+                    st.write(f"**Saved:** {formatted_date}")
                 with col2:
                     st.write(f"**File:** {selected_session['filename']}")
                     st.write(f"**Size:** {selected_session['size']} bytes")
@@ -311,18 +326,10 @@ def render_session_manager_ui():
                 
                 with col2:
                     if st.button("🗑️ Delete Session", type="secondary"):
-                        # Show confirmation modal
-                        st.warning("⚠️ Are you sure you want to delete this session?")
-                        st.write(f"**Session:** {selected_session['name']}")
-                        st.write(f"**File:** {selected_session['filename']}")
-                        
-                        # Use buttons without columns for sidebar compatibility
-                        if st.button("✅ Yes, Delete", key="confirm_delete", type="primary"):
-                            if session_manager.delete_session(selected_session['filepath']):
-                                st.success("✅ Session deleted successfully!")
-                                st.rerun()
-                        
-                        if st.button("❌ Cancel", key="cancel_delete"):
+                        if session_manager.delete_session(selected_session['filepath']):
+                            st.success("✅ Session deleted successfully!")
                             st.rerun()
+                        else:
+                            st.error("❌ Failed to delete session")
     
  
