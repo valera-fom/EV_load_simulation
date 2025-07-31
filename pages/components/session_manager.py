@@ -316,15 +316,13 @@ def render_session_manager_ui():
                         st.write(f"**Session:** {selected_session['name']}")
                         st.write(f"**File:** {selected_session['filename']}")
                         
-                        col_confirm1, col_confirm2 = st.columns(2)
-                        with col_confirm1:
-                            if st.button("✅ Yes, Delete", key="confirm_delete", type="primary"):
-                                if session_manager.delete_session(selected_session['filepath']):
-                                    st.success("✅ Session deleted successfully!")
-                                    st.rerun()
-                        
-                        with col_confirm2:
-                            if st.button("❌ Cancel", key="cancel_delete"):
+                        # Use buttons without columns for sidebar compatibility
+                        if st.button("✅ Yes, Delete", key="confirm_delete", type="primary"):
+                            if session_manager.delete_session(selected_session['filepath']):
+                                st.success("✅ Session deleted successfully!")
                                 st.rerun()
+                        
+                        if st.button("❌ Cancel", key="cancel_delete"):
+                            st.rerun()
     
  

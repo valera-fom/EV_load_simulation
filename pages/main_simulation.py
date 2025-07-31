@@ -308,7 +308,7 @@ if 'show_average_line' not in st.session_state:
 if 'show_legend' not in st.session_state:
     st.session_state.show_legend = True
 if 'smooth_graph' not in st.session_state:
-    st.session_state.smooth_graph = False
+    st.session_state.smooth_graph = True
 if 'show_safety_margin' not in st.session_state:
     st.session_state.show_safety_margin = True
 
@@ -2722,13 +2722,13 @@ with col1:
     
     # Initialize seed mode in session state if not exists
     if 'seed_mode' not in st.session_state:
-        st.session_state.seed_mode = "manual"
+        st.session_state.seed_mode = "auto"
     
     # Seed mode selection
     seed_mode = st.radio(
         "Seed Mode:",
         ["Manual Control", "Auto Random"],
-        index=0 if st.session_state.seed_mode == "manual" else 1,
+        index=1 if st.session_state.seed_mode == "auto" else 0,
         horizontal=True,
         help="Manual Control: Use fixed seed, change manually. Auto Random: Generate new seed for each simulation."
     )
