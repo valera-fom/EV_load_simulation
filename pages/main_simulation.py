@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,6 +14,7 @@ import os
 import math
 import time
 import streamlit.components.v1 as components
+from openpyxl import load_workbook
 warnings.filterwarnings('ignore')
 
 # Add parent directory to path to import modules
@@ -1586,20 +1585,12 @@ with st.sidebar:
                             # Get power values
                             if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
                                 power_values = st.session_state.synthetic_load_curve
-                            elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
-                                try:
-                                    df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
-                                    selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
-                                    df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                                    day_data = df[df['date'].dt.date == selected_date]
-                                    
-                                    if not day_data.empty:
-                                        power_values = day_data.iloc[:, 2].values
-                                    else:
-                                        return None
-                                except Exception as e:
-                                    st.error(f"Error reading dataset: {e}")
-                                    return None
+                            elif 'available_load' in st.session_state and st.session_state.available_load is not None:
+                                # Use available_load from Excel file (red line)
+                                power_values = st.session_state.available_load
+                            elif 'power_values' in st.session_state and st.session_state.power_values is not None:
+                                # Fallback to power_values if available_load is not available
+                                power_values = st.session_state.power_values
                             else:
                                 return None
                             
@@ -2708,43 +2699,119 @@ with st.sidebar:
         st.session_state.data_source = data_source
         
         if data_source == "Real Dataset":
-            # Original dataset selection logic
-            dataset_files = ["df1.csv", "df2.csv", "df3.csv"]
-            # Initialize dataset selection in session state if not exists
-            if 'selected_dataset' not in st.session_state:
-                st.session_state.selected_dataset = "df3.csv"
+            # New Excel file upload logic
+            st.write("**📁 Upload Excel File**")
+            st.write("Upload an Excel file (.xlsx or .xls) with datetime and taken load data.")
             
-            selected_dataset = st.selectbox(
-                "Select Dataset", 
-                dataset_files,
-                index=dataset_files.index(st.session_state.selected_dataset),
-                key="dataset_selection"
+            # File upload
+            uploaded_file = st.file_uploader(
+                "Choose Excel file",
+                type=['xlsx', 'xls'],
+                help="Upload Excel file with 2 columns: datetime and taken load (kW)"
             )
-            # Update session state immediately when dataset changes
-            if selected_dataset != st.session_state.selected_dataset:
-                st.session_state.selected_dataset = selected_dataset
-                st.rerun()
             
-            if selected_dataset:
+            # Max Capacity input
+            if 'max_capacity' not in st.session_state:
+                st.session_state.max_capacity = 500.0
+            
+            max_capacity = st.number_input(
+                "Max Substation Capacity (kW)",
+                min_value=0.1,
+                max_value=10000.0,
+                value=float(st.session_state.max_capacity),
+                step=10.0,
+                help="Total capacity of the substation in kW"
+            )
+            st.session_state.max_capacity = max_capacity
+            
+            if uploaded_file is not None:
                 try:
-                    df = pd.read_csv(f"datasets/{selected_dataset}")
-                    df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+                    # Read Excel file
+                    
+                    # Try to read with pandas first
+                    try:
+                        df = pd.read_excel(uploaded_file, header=None)
+                    except Exception as e:
+                        st.error(f"Error reading Excel file: {e}")
+                        power_values = None
+                        available_load = None
+                        st.stop()
+                    
+                    # Find the first row with a valid datetime (scan first 10 rows)
+                    datetime_row = None
+                    for i in range(min(10, len(df))):
+                        try:
+                            # Try to parse the first column as datetime
+                            test_date = pd.to_datetime(df.iloc[i, 0], errors='coerce')
+                            if pd.notna(test_date):
+                                datetime_row = i
+                                break
+                        except:
+                            continue
+                    
+                    if datetime_row is None:
+                        st.error("No valid datetime found in the first 10 rows of the file.")
+                        power_values = None
+                        available_load = None
+                        st.stop()
+                    
+                    # Read the data starting from the datetime row
+                    df = pd.read_excel(uploaded_file, header=datetime_row)
+                    
+                    # Rename columns for clarity
+                    df.columns = ['datetime', 'taken_load'] + [f'col_{i}' for i in range(2, len(df.columns))]
+                    
+                    # Parse datetime column
+                    df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce')
+                    
+                    # Remove rows with invalid datetime
+                    df = df.dropna(subset=['datetime'])
+                    
+                    if df.empty:
+                        st.error("No valid datetime values found in the file.")
+                        power_values = None
+                        available_load = None
+                        st.stop()
+                    
+                    # Validate taken_load column
+                    df['taken_load'] = pd.to_numeric(df['taken_load'], errors='coerce')
+                    df = df.dropna(subset=['taken_load'])
+                    
+                    if df.empty:
+                        st.error("No valid taken load values found in the file.")
+                        power_values = None
+                        available_load = None
+                        st.stop()
+                    
+                    # Validate that taken_load doesn't exceed max_capacity
+                    if df['taken_load'].max() > max_capacity:
+                        st.error(f"Maximum taken load ({df['taken_load'].max():.2f} kW) exceeds max capacity ({max_capacity} kW).")
+                        power_values = None
+                        available_load = None
+                        st.stop()
+                    
+                    # Check for negative values
+                    if (df['taken_load'] < 0).any():
+                        st.warning("Negative values found in taken load. These will be set to 0.")
+                        df['taken_load'] = df['taken_load'].clip(lower=0)
+                    
+                    # Forward-fill any NaN values
+                    df['taken_load'] = df['taken_load'].fillna(method='ffill')
+                    
+                    # Calculate available_load (red line)
+                    df['available_load'] = max_capacity - df['taken_load']
                     
                     # Get date range for the calendar
-                    date_min = df['date'].min()
-                    date_max = df['date'].max()
+                    date_min = df['datetime'].min()
+                    date_max = df['datetime'].max()
                     
                     if pd.notna(date_min) and pd.notna(date_max):
                         # Use date_input for nice calendar selection
                         # Initialize selected date in session state if not exists
                         if 'selected_date' not in st.session_state:
-                            # Set default date to 2023/01/18
-                            default_date = pd.to_datetime('2023-01-18').date()
-                            # Check if default date is within the dataset range
-                            if date_min.date() <= default_date <= date_max.date():
-                                st.session_state.selected_date = default_date
-                            else:
-                                st.session_state.selected_date = date_min.date()
+                            # Set default date to the first date in the dataset
+                            default_date = date_min.date()
+                            st.session_state.selected_date = default_date
                         
                         selected_date = st.date_input(
                             "Select Date",
@@ -2760,12 +2827,16 @@ with st.sidebar:
                         
                         if selected_date:
                             # Filter data for selected date
-                            day_data = df[df['date'].dt.date == selected_date]
+                            day_data = df[df['datetime'].dt.date == selected_date]
                             
                             if not day_data.empty:
-                                # Extract power values (3rd column, index 2) - no scaling here
-                                power_values = day_data.iloc[:, 2].values
+                                # Extract power values (taken_load column)
+                                power_values = day_data['taken_load'].values
+                                # Extract available_load values (red line)
+                                available_load = day_data['available_load'].values
+                                
                                 st.session_state.power_values = power_values  # Store in session state
+                                st.session_state.available_load = available_load  # Store available_load
                                 
                                 # Display dataset curve summary and preview
                                 st.write("**📊 Dataset Curve Summary:**")
@@ -2774,10 +2845,12 @@ with st.sidebar:
                                 st.write(f"**Mean Load:** {np.mean(power_values):.2f} kW")
                                 st.write(f"**Max Load:** {np.max(power_values):.2f} kW")
                                 st.write(f"**Min Load:** {np.min(power_values):.2f} kW")
-                                st.write(f"**Dataset:** {selected_dataset}")
+                                st.write(f"**Max Capacity:** {max_capacity} kW")
+                                st.write(f"**Mean Available:** {np.mean(available_load):.2f} kW")
+                                st.write(f"**File:** {uploaded_file.name}")
                                 st.write(f"**Date:** {selected_date}")
                                 
-                                # Show curve preview
+                                # Show curve preview with both taken_load and available_load
                                 fig, ax = plt.subplots(figsize=(10, 4))
                                 
                                 # Calculate time axis based on actual data length
@@ -2790,32 +2863,38 @@ with st.sidebar:
                                 time_hours = np.arange(len(power_values)) * interval_minutes / 60
                                 
                                 # Plot the data
-                                ax.plot(time_hours, power_values, linewidth=1, alpha=0.8, color='blue')
+                                ax.plot(time_hours, power_values, linewidth=1, alpha=0.8, color='blue', label='Taken Load')
+                                ax.plot(time_hours, available_load, linewidth=1, alpha=0.8, color='red', label='Available Load')
                                 ax.set_title("Dataset Load Curve Preview")
                                 ax.set_xlabel("Time (hours)")
                                 ax.set_ylabel("Load (kW)")
                                 ax.grid(True, alpha=0.3)
+                                ax.legend()
                                 
                                 # Set x-axis to show the actual time range
                                 ax.set_xlim(0, total_hours)
-                                
-                             
                                 
                                 st.pyplot(fig)
                                 plt.close()
                             else:
                                 st.error("No data found for selected date")
                                 power_values = None
+                                available_load = None
                         else:
                             power_values = None
+                            available_load = None
                     else:
                         st.error("No valid dates found in dataset")
                         power_values = None
+                        available_load = None
+                        
                 except Exception as e:
-                    st.error(f"Error loading dataset: {e}")
+                    st.error(f"Error processing Excel file: {e}")
                     power_values = None
+                    available_load = None
             else:
                 power_values = None
+                available_load = None
                 
         else:  # Synthetic Generation
             st.write("**🎲 Synthetic Load Curve Generation**")
@@ -3161,15 +3240,26 @@ with col1:
                 
                 # Set grid power limit based on mode
                 # Always create grid profile for plotting (FULL capacity, before 80% margin)
-                grid_profile_15min = power_values
+                
+                # Check if we're using synthetic data or real dataset
+                using_synthetic_data = ('synthetic_load_curve' in st.session_state and 
+                                      st.session_state.synthetic_load_curve is not None)
+                
+                if using_synthetic_data:
+                    # For synthetic data, use power_values as the grid profile
+                    grid_profile_15min = power_values
+                else:
+                    # For real dataset, use available_load (red line) as the grid profile
+                    if 'available_load' in st.session_state and st.session_state.available_load is not None:
+                        grid_profile_15min = st.session_state.available_load
+                    else:
+                        # Fallback to power_values if available_load is not available
+                        grid_profile_15min = power_values
+                
                 grid_profile_full = np.repeat(grid_profile_15min, 15).astype(float)
                 
                 sim_duration_min = 72 * 60  # Run for 72 hours
                 daily_minutes = 24 * 60
-                
-                # Check if we're using synthetic data
-                using_synthetic_data = ('synthetic_load_curve' in st.session_state and 
-                                      st.session_state.synthetic_load_curve is not None)
                 
                 if len(grid_profile_full) < sim_duration_min:
                     if using_synthetic_data:
@@ -3183,47 +3273,17 @@ with col1:
                         
                         grid_profile_full = np.array(extended_profile[:sim_duration_min])
                     else:
-                        # For real dataset, use actual next days from the dataset
-                        # Make sure df is available for real dataset
-                        if 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
-                            try:
-                                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
-                                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                                
-                                num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                                extended_profile = []
-                                current_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
-                                
-                                for day in range(num_days_needed):
-                                    day_data = df[df['date'].dt.date == current_date]
-                                    
-                                    if not day_data.empty:
-                                        # Use FULL capacity (no 80% margin yet)
-                                        day_power_values = day_data.iloc[:, 2].values
-                                        day_profile = np.repeat(day_power_values, 15).astype(float)
-                                        extended_profile.extend(day_profile)
-                                    else:
-                                        # If no data for this day, repeat the previous day's full profile
-                                        extended_profile.extend(grid_profile_full)
-                                    
-                                    current_date = current_date + pd.Timedelta(days=1)
-                                
-                                grid_profile_full = np.array(extended_profile[:sim_duration_min])
-                            except Exception as e:
-                                st.error(f"Error extending real dataset: {e}")
-                                # Fallback to repeating the current profile
-                                num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                                extended_profile = []
-                                for day in range(num_days_needed):
-                                    extended_profile.extend(grid_profile_full)
-                                grid_profile_full = np.array(extended_profile[:sim_duration_min])
-                        else:
-                            # Fallback to repeating the current profile
-                            num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                            extended_profile = []
-                            for day in range(num_days_needed):
-                                extended_profile.extend(grid_profile_full)
-                            grid_profile_full = np.array(extended_profile[:sim_duration_min])
+                        # For real dataset, repeat the current profile to cover simulation duration
+                        # Since we're using uploaded Excel files, we don't have multiple days of data
+                        # So we repeat the single day profile
+                        num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
+                        extended_profile = []
+                        
+                        for day in range(num_days_needed):
+                            # Repeat the current day's profile for each day
+                            extended_profile.extend(grid_profile_full)
+                        
+                        grid_profile_full = np.array(extended_profile[:sim_duration_min])
                 else:
                     grid_profile_full = grid_profile_full[:sim_duration_min]
                 
@@ -4600,23 +4660,12 @@ def extract_margin_curve_from_current_data():
         if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
             # Use synthetic data
             power_values = st.session_state.synthetic_load_curve
-        elif 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
-            # Use real dataset
-            try:
-                df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
-                selected_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
-                
-                # Filter data for selected date
-                df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                day_data = df[df['date'].dt.date == selected_date]
-                
-                if not day_data.empty:
-                    power_values = day_data.iloc[:, 2].values
-                else:
-                    return None
-            except Exception as e:
-                st.error(f"Error reading dataset: {e}")
-                return None
+        elif 'available_load' in st.session_state and st.session_state.available_load is not None:
+            # Use available_load from Excel file (red line)
+            power_values = st.session_state.available_load
+        elif 'power_values' in st.session_state and st.session_state.power_values is not None:
+            # Fallback to power_values if available_load is not available
+            power_values = st.session_state.power_values
         else:
             return None
         

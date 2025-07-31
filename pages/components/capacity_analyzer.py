@@ -59,196 +59,278 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
         # We use: available_load_fraction - 0.1 (e.g., 0.8 - 0.1 = 0.7) for more conservative estimate
         capacity_margin = max(0.1, available_load_fraction - 0.1)  # Subtract 0.1 but don't go below 0.1
         
-        # Upsample 15-minute data to 1-minute intervals (EXACTLY like main simulation)
-        grid_profile_15min = power_values
-        adjusted_margin_curve = np.repeat(grid_profile_15min, 15).astype(float) * capacity_margin
+        # Use the same margin curve extraction as TOU optimizer
+        # This ensures we use the correct data source and apply all battery effects consistently
+        def extract_margin_curve_with_battery_effects():
+            try:
+                # Set random seed for consistent battery effects
+                np.random.seed(st.session_state.get('random_seed', 42))
+                
+                # Get current configuration
+                active_strategies = st.session_state.get('active_strategies', [])
+                
+                # Get power values (same logic as TOU optimizer)
+                if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
+                    power_values = st.session_state.synthetic_load_curve
+                elif 'available_load' in st.session_state and st.session_state.available_load is not None:
+                    # Use available_load from Excel file (red line)
+                    power_values = st.session_state.available_load
+                elif 'power_values' in st.session_state and st.session_state.power_values is not None:
+                    # Fallback to power_values if available_load is not available
+                    power_values = st.session_state.power_values
+                else:
+                    return None
+                
+                # Get original number of cars for battery effects (existing infrastructure)
+                if 'time_peaks' in st.session_state and st.session_state.time_peaks:
+                    original_total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+                elif 'ev_calculator' in st.session_state and 'total_evs' in st.session_state.ev_calculator:
+                    original_total_evs = st.session_state.ev_calculator['total_evs']
+                else:
+                    # Use a reasonable default if no peaks or calculator available
+                    original_total_evs = 32  # Default fallback
+                
+                # Upsample 15-minute data to 1-minute intervals (EXACTLY like main simulation)
+                grid_profile_full = np.repeat(power_values, 15).astype(float)
+                
+                # Apply battery effects to grid profile (EXACTLY like main simulation)
+                adjusted_grid_profile = grid_profile_full.copy()
+                
+                # Apply PV + Battery optimization if enabled (charging during day, discharging during evening)
+                if 'pv_battery' in active_strategies:
+                    pv_adoption_percent = st.session_state.optimization_strategy.get('pv_adoption_percent', 0)
+                    battery_capacity = st.session_state.optimization_strategy.get('battery_capacity', 0)
+                    max_charge_rate = st.session_state.optimization_strategy.get('max_charge_rate', 0)
+                    max_discharge_rate = st.session_state.optimization_strategy.get('max_discharge_rate', 0)
+                    solar_energy_percent = st.session_state.optimization_strategy.get('solar_energy_percent', 70)
+                    pv_start_hour = st.session_state.optimization_strategy.get('pv_start_hour', 8)
+                    pv_duration = st.session_state.optimization_strategy.get('pv_duration', 8)
+                    charge_time = st.session_state.optimization_strategy.get('charge_time', battery_capacity / max_charge_rate)
+                    system_support_time = st.session_state.optimization_strategy.get('system_support_time', pv_duration - charge_time)
+                    discharge_start_hour = st.session_state.optimization_strategy.get('discharge_start_hour', 18)
+                    discharge_duration = st.session_state.optimization_strategy.get('discharge_duration', battery_capacity / max_discharge_rate)
+                    actual_discharge_rate = st.session_state.optimization_strategy.get('actual_discharge_rate', max_discharge_rate)
+                    
+                    if pv_adoption_percent > 0 and battery_capacity > 0 and max_charge_rate > 0 and actual_discharge_rate > 0:
+                        # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                        total_evs_for_pv = original_total_evs
+                        pv_evs = int(total_evs_for_pv * pv_adoption_percent / 100)
+                        total_charge_power = pv_evs * max_charge_rate
+                        total_system_support_power = pv_evs * max_charge_rate  # Same as charge rate for system support
+                        total_discharge_power = pv_evs * actual_discharge_rate * (solar_energy_percent / 100)
+                        
+                        # Generate variable start times with normal distribution or strict boundaries
+                        pv_use_normal_distribution = st.session_state.optimization_strategy.get('pv_use_normal_distribution', True)
+                        pv_sigma_divisor = st.session_state.optimization_strategy.get('pv_sigma_divisor', 8)
+                        
+                        if pv_use_normal_distribution and pv_sigma_divisor:
+                            pv_sigma = pv_duration / pv_sigma_divisor
+                            pv_start_times = np.random.normal(pv_start_hour, pv_sigma, pv_evs)
+                            pv_start_times = np.clip(pv_start_times, 0, 24)  # Clip to valid hours
+                        else:
+                            # Use strict boundaries - all EVs start at the same time
+                            pv_start_times = np.full(pv_evs, pv_start_hour)
+                        
+                        if pv_use_normal_distribution and pv_sigma_divisor:
+                            discharge_sigma = discharge_duration / pv_sigma_divisor
+                            discharge_start_times = np.random.normal(discharge_start_hour, discharge_sigma, pv_evs)
+                            discharge_start_times = np.clip(discharge_start_times, 0, 24)  # Clip to valid hours
+                        else:
+                            # Use strict boundaries - all EVs start at the same time
+                            discharge_start_times = np.full(pv_evs, discharge_start_hour)
+                        
+                        # Calculate time periods for each EV
+                        for ev_idx in range(pv_evs):
+                            # Get individual start times
+                            ev_pv_start = pv_start_times[ev_idx]
+                            ev_discharge_start = discharge_start_times[ev_idx]
+                            
+                            # Convert to minutes
+                            ev_pv_start_minute = int(ev_pv_start * 60)
+                            ev_system_support_end_minute = ev_pv_start_minute + int(pv_duration * 60)
+                            ev_discharge_start_minute = int(ev_discharge_start * 60)
+                            ev_discharge_duration_minutes = int(discharge_duration * 60)
+                            ev_discharge_end_minute = ev_discharge_start_minute + ev_discharge_duration_minutes
+                            
+                            # Calculate required charging rate for this EV
+                            ev_battery_capacity = battery_capacity
+                            ev_charging_time_hours = pv_duration
+                            ev_required_charging_rate = ev_battery_capacity / ev_charging_time_hours
+                            
+                            for minute in range(len(grid_profile_full)):
+                                # Day Phase: Simultaneous battery charging and grid support for this EV
+                                if ev_system_support_end_minute > 24 * 60:
+                                    # System support period extends beyond 24 hours, use absolute time
+                                    if (minute >= ev_pv_start_minute and minute < ev_system_support_end_minute):
+                                        # Calculate total PV power available for this EV
+                                        ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                                        
+                                        # Calculate remaining power for grid support
+                                        ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
+                                        
+                                        # Apply grid support (increases available capacity)
+                                        if ev_grid_support_power > 0:
+                                            adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                                else:
+                                    # System support period is within same day, use modulo logic
+                                    time_of_day = minute % (24 * 60)
+                                    if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
+                                        # Calculate total PV power available for this EV
+                                        ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                                        
+                                        # Calculate remaining power for grid support
+                                        ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
+                                        
+                                        # Apply grid support (increases available capacity)
+                                        if ev_grid_support_power > 0:
+                                            adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                                    
+                                    # Evening Phase: Battery discharge for this EV
+                                    if ev_discharge_end_minute > 24 * 60:
+                                        # Discharging period extends beyond 24 hours, use absolute time
+                                        if (minute >= ev_discharge_start_minute and minute < ev_discharge_end_minute):
+                                            ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
+                                            adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                                    else:
+                                        # Discharging period is within same day, use modulo logic
+                                        time_of_day = minute % (24 * 60)
+                                        if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                                            ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
+                                            adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                
+                # Apply Grid-Charged Batteries optimization if enabled
+                if 'grid_battery' in active_strategies:
+                    grid_battery_adoption_percent = st.session_state.optimization_strategy.get('grid_battery_adoption_percent', 0)
+                    grid_battery_capacity = st.session_state.optimization_strategy.get('grid_battery_capacity', 0)
+                    grid_battery_max_rate = st.session_state.optimization_strategy.get('grid_battery_max_rate', 0)
+                    grid_battery_charge_start_hour = st.session_state.optimization_strategy.get('grid_battery_charge_start_hour', 7)
+                    grid_battery_charge_duration = st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8)
+                    grid_battery_discharge_start_hour = st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18)
+                    grid_battery_discharge_duration = st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)
+                    
+                    if grid_battery_adoption_percent > 0 and grid_battery_capacity > 0 and grid_battery_max_rate > 0:
+                        # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                        total_evs_for_grid_battery = original_total_evs
+                        grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
+                        
+                        # Generate variable start times
+                        grid_battery_use_normal_distribution = st.session_state.optimization_strategy.get('grid_battery_use_normal_distribution', True)
+                        grid_battery_sigma_divisor = st.session_state.optimization_strategy.get('grid_battery_sigma_divisor', 8)
+                        
+                        if grid_battery_use_normal_distribution and grid_battery_sigma_divisor:
+                            charge_sigma = grid_battery_charge_duration / grid_battery_sigma_divisor
+                            discharge_sigma = grid_battery_discharge_duration / grid_battery_sigma_divisor
+                            charge_start_times = np.random.normal(grid_battery_charge_start_hour, charge_sigma, grid_battery_evs)
+                            discharge_start_times = np.random.normal(grid_battery_discharge_start_hour, discharge_sigma, grid_battery_evs)
+                            charge_start_times = np.clip(charge_start_times, 0, 24)
+                            discharge_start_times = np.clip(discharge_start_times, 0, 24)
+                        else:
+                            charge_start_times = np.full(grid_battery_evs, grid_battery_charge_start_hour)
+                            discharge_start_times = np.full(grid_battery_evs, grid_battery_discharge_start_hour)
+                        
+                        # Calculate time periods for each EV
+                        for ev_idx in range(grid_battery_evs):
+                            ev_charge_start = charge_start_times[ev_idx]
+                            ev_discharge_start = discharge_start_times[ev_idx]
+                            
+                            # Convert to minutes
+                            ev_charge_start_minute = int(ev_charge_start * 60)
+                            ev_charge_end_minute = ev_charge_start_minute + int(grid_battery_charge_duration * 60)
+                            ev_discharge_start_minute = int(ev_discharge_start * 60)
+                            ev_discharge_end_minute = ev_discharge_start_minute + int(grid_battery_discharge_duration * 60)
+                            
+                            for minute in range(len(grid_profile_full)):
+                                time_of_day = minute % (24 * 60)
+                                
+                                # Charging phase (reduces available capacity)
+                                if (time_of_day >= ev_charge_start_minute and time_of_day < ev_charge_end_minute):
+                                    ev_charge_power = grid_battery_max_rate
+                                    adjusted_grid_profile[minute] -= ev_charge_power  # Decrease available capacity
+                                
+                                # Discharging phase (increases available capacity)
+                                elif (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                                    ev_discharge_power = grid_battery_max_rate
+                                    adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                
+                # Apply V2G optimization if enabled
+                if 'v2g' in active_strategies:
+                    v2g_adoption_percent = st.session_state.optimization_strategy.get('v2g_adoption_percent', 0)
+                    v2g_max_discharge_rate = st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0)
+                    v2g_discharge_start_hour = st.session_state.optimization_strategy.get('v2g_discharge_start_hour', 18)
+                    v2g_discharge_duration = st.session_state.optimization_strategy.get('v2g_discharge_duration', 3)
+                    
+                    if v2g_adoption_percent > 0 and v2g_max_discharge_rate > 0:
+                        # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                        total_evs_for_v2g = original_total_evs
+                        v2g_evs = int(total_evs_for_v2g * v2g_adoption_percent / 100)
+                        
+                        # Generate variable start times
+                        v2g_use_normal_distribution = st.session_state.optimization_strategy.get('v2g_use_normal_distribution', True)
+                        v2g_sigma_divisor = st.session_state.optimization_strategy.get('v2g_sigma_divisor', 8)
+                        
+                        if v2g_use_normal_distribution and v2g_sigma_divisor:
+                            discharge_sigma = v2g_discharge_duration / v2g_sigma_divisor
+                            discharge_start_times = np.random.normal(v2g_discharge_start_hour, discharge_sigma, v2g_evs)
+                            discharge_start_times = np.clip(discharge_start_times, 0, 24)
+                        else:
+                            discharge_start_times = np.full(v2g_evs, v2g_discharge_start_hour)
+                        
+                        # Calculate time periods for each EV
+                        for ev_idx in range(v2g_evs):
+                            ev_discharge_start = discharge_start_times[ev_idx]
+                            
+                            # Convert to minutes
+                            ev_discharge_start_minute = int(ev_discharge_start * 60)
+                            ev_discharge_end_minute = ev_discharge_start_minute + int(v2g_discharge_duration * 60)
+                            
+                            for minute in range(len(grid_profile_full)):
+                                time_of_day = minute % (24 * 60)
+                                
+                                # Discharging phase (increases available capacity)
+                                if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                                    ev_discharge_power = v2g_max_discharge_rate
+                                    adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                
+                # Apply margin to the adjusted grid profile (EXACTLY like main simulation)
+                margin_curve = adjusted_grid_profile * available_load_fraction
+                
+                # Extend for 48 hours (2880 minutes) - EXACTLY like main simulation
+                sim_duration_min = 48 * 60  # 48 hours
+                
+                if len(margin_curve) < sim_duration_min:
+                    # Repeat the profile to cover 48 hours
+                    num_repeats = sim_duration_min // len(margin_curve) + 1
+                    margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
+                else:
+                    margin_curve = margin_curve[:sim_duration_min]
+                
+                return margin_curve
+            except Exception as e:
+                st.error(f"Error extracting margin curve with battery effects: {e}")
+                return None
+        
+        # Extract margin curve with battery effects (same as TOU optimizer)
+        margin_curve = extract_margin_curve_with_battery_effects()
+        
+        if margin_curve is None:
+            st.error("❌ No grid data available for capacity analysis.")
+            return current_cars
+        
+        # Use the extracted margin curve directly (this is the yellow line)
+        adjusted_margin_curve = margin_curve
         
         # Extend grid profile for 60-hour simulation (EXACTLY like main simulation)
         daily_minutes = 24 * 60
         sim_duration_min = 60 * 60  # Run for 60 hours
         
-        # Check if we're using synthetic data
-        using_synthetic_data = ('synthetic_load_curve' in st.session_state and 
-                              st.session_state.synthetic_load_curve is not None)
-        
         if len(adjusted_margin_curve) < sim_duration_min:
-            if using_synthetic_data:
-                # For synthetic data, repeat the generated profile to cover the simulation duration
-                num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                extended_profile = []
-                
-                for day in range(num_days_needed):
-                    # Use the same synthetic profile for each day
-                    extended_profile.extend(adjusted_margin_curve)
-                
-                adjusted_margin_curve = np.array(extended_profile[:sim_duration_min])
-            else:
-                # For real dataset, use actual next days from the dataset
-                # Make sure df is available for real dataset
-                if 'selected_dataset' in st.session_state and st.session_state.selected_dataset:
-                    try:
-                        df = pd.read_csv(f"datasets/{st.session_state.selected_dataset}")
-                        df['date'] = pd.to_datetime(df.iloc[:, 0], errors='coerce')
-                        
-                        num_days_needed = sim_duration_min // daily_minutes + (1 if sim_duration_min % daily_minutes > 0 else 0)
-                        extended_profile = []
-                        current_date = st.session_state.get('selected_date', pd.to_datetime('2023-01-18').date())
-                        
-                        for day in range(num_days_needed):
-                            day_data = df[df['date'].dt.date == current_date]
-                            
-                            if not day_data.empty:
-                                # Use FULL capacity (no margin yet) - upsample to 1-minute intervals
-                                day_power_values = day_data.iloc[:, 2].values
-                                day_profile = np.repeat(day_power_values, 15).astype(float) * capacity_margin
-                                extended_profile.extend(day_profile)
-                            else:
-                                # If no data for this day, use the last available day
-                                extended_profile.extend(adjusted_margin_curve)
-                            
-                            # Move to next day
-                            current_date = current_date + pd.Timedelta(days=1)
-                        
-                        adjusted_margin_curve = np.array(extended_profile[:sim_duration_min])
-                    except Exception as e:
-                        st.error(f"❌ Error loading dataset for capacity analysis: {e}")
-                        # Fallback to repeating the available profile
-                        num_repeats = sim_duration_min // len(adjusted_margin_curve) + 1
-                        adjusted_margin_curve = np.tile(adjusted_margin_curve, num_repeats)[:sim_duration_min]
-                else:
-                    # No dataset selected, repeat the available profile
-                    num_repeats = sim_duration_min // len(adjusted_margin_curve) + 1
-                    adjusted_margin_curve = np.tile(adjusted_margin_curve, num_repeats)[:sim_duration_min]
-        
-        # Apply V2G optimization if enabled (EXACTLY like main simulation)
-        adjusted_grid_profile = adjusted_margin_curve.copy()
-        v2g_discharge_curve = np.zeros_like(adjusted_margin_curve)
-        if 'v2g' in active_strategies:
-            v2g_adoption_percent = st.session_state.optimization_strategy.get('v2g_adoption_percent', 0)
-            v2g_discharge_duration = st.session_state.optimization_strategy.get('v2g_discharge_duration', 3)
-            v2g_max_discharge_rate = st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 7)
-            
-            if v2g_adoption_percent > 0 and v2g_discharge_duration > 0 and v2g_max_discharge_rate > 0:
-                total_evs_for_v2g = current_cars
-                v2g_evs = int(total_evs_for_v2g * v2g_adoption_percent / 100)
-                
-                # Calculate discharge rate and total power
-                ev_capacity = ev_config['capacity']
-                full_discharge_time = ev_capacity / v2g_max_discharge_rate if v2g_max_discharge_rate > 0 else 1.0
-                
-                if v2g_discharge_duration >= full_discharge_time:
-                    # Fully discharged - use slower rate if needed
-                    actual_discharge_rate = ev_capacity / v2g_discharge_duration
-                else:
-                    # Partially discharged
-                    actual_discharge_rate = v2g_max_discharge_rate
-                
-                total_v2g_power = v2g_evs * actual_discharge_rate
-                
-                # Apply V2G discharge during peak hours (EXACTLY like main simulation)
-                v2g_start_hour = st.session_state.optimization_strategy.get('v2g_start_hour', 18)
-                v2g_end_hour = v2g_start_hour + v2g_discharge_duration
-                
-                for minute in range(len(adjusted_grid_profile)):
-                    time_of_day = minute % (24 * 60)
-                    hour_of_day = time_of_day / 60
-                    
-                    if v2g_start_hour <= hour_of_day < v2g_end_hour:
-                        v2g_discharge_curve[minute] = total_v2g_power
-                        adjusted_grid_profile[minute] += total_v2g_power  # Increase available capacity
-        
-        # Apply PV Battery optimization if enabled (EXACTLY like main simulation)
-        pv_battery_charge_curve = np.zeros_like(adjusted_margin_curve)
-        pv_battery_discharge_curve = np.zeros_like(adjusted_margin_curve)
-        pv_direct_support_curve = np.zeros_like(adjusted_margin_curve)
-        if 'pv_battery' in active_strategies:
-            pv_adoption_percent = st.session_state.optimization_strategy.get('pv_adoption_percent', 0)
-            pv_battery_capacity = st.session_state.optimization_strategy.get('pv_battery_capacity', 0)
-            pv_battery_max_rate = st.session_state.optimization_strategy.get('pv_battery_max_rate', 0)
-            pv_charge_start_hour = st.session_state.optimization_strategy.get('pv_charge_start_hour', 7)
-            pv_charge_duration = st.session_state.optimization_strategy.get('pv_charge_duration', 8)
-            pv_discharge_start_hour = st.session_state.optimization_strategy.get('pv_discharge_start_hour', 18)
-            pv_discharge_duration = st.session_state.optimization_strategy.get('pv_discharge_duration', 4)
-            
-            if pv_adoption_percent > 0 and pv_battery_capacity > 0 and pv_battery_max_rate > 0:
-                total_evs_for_pv = current_cars
-                pv_evs = int(total_evs_for_pv * pv_adoption_percent / 100)
-                
-                # Calculate charge and discharge rates
-                charge_rate = pv_battery_capacity / pv_charge_duration
-                discharge_rate = pv_battery_capacity / pv_discharge_duration
-                total_charge_power = pv_evs * charge_rate
-                total_discharge_power = pv_evs * discharge_rate
-                
-                # Calculate system support power (total PV power available)
-                total_system_support_power = total_charge_power + total_discharge_power
-                
-                # Apply PV battery optimization (EXACTLY like main simulation)
-                for minute in range(len(adjusted_grid_profile)):
-                    time_of_day = minute % (24 * 60)
-                    hour_of_day = time_of_day / 60
-                    
-                    # Day Phase: Simultaneous battery charging and grid support
-                    if pv_charge_start_hour <= hour_of_day < (pv_charge_start_hour + pv_charge_duration):
-                        # Calculate total PV power available for this EV
-                        ev_total_pv_power = total_system_support_power / pv_evs if pv_evs > 0 else 0
-                        
-                        # Calculate remaining power for grid support
-                        ev_grid_support_power = max(0, ev_total_pv_power - charge_rate)
-                        
-                        # Apply battery charging (no grid effect - PV charges batteries directly)
-                        pv_battery_charge_curve[minute] += total_charge_power
-                                    
-                        # Apply grid support (increases available capacity)
-                        if ev_grid_support_power > 0:
-                            pv_direct_support_curve[minute] += ev_grid_support_power * pv_evs
-                            adjusted_grid_profile[minute] += ev_grid_support_power * pv_evs
-                    
-                    # Evening Phase: Battery discharge
-                    if pv_discharge_start_hour <= hour_of_day < (pv_discharge_start_hour + pv_discharge_duration):
-                        pv_battery_discharge_curve[minute] += total_discharge_power
-                        adjusted_grid_profile[minute] += total_discharge_power  # Increase available capacity
-        
-        # Apply Grid-Charged Batteries optimization if enabled (EXACTLY like main simulation)
-        grid_battery_charge_curve = np.zeros_like(adjusted_margin_curve)
-        grid_battery_discharge_curve = np.zeros_like(adjusted_margin_curve)
-        if 'grid_battery' in active_strategies:
-            grid_battery_adoption_percent = st.session_state.optimization_strategy.get('grid_battery_adoption_percent', 0)
-            grid_battery_capacity = st.session_state.optimization_strategy.get('grid_battery_capacity', 0)
-            grid_battery_max_rate = st.session_state.optimization_strategy.get('grid_battery_max_rate', 0)
-            grid_battery_charge_start_hour = st.session_state.optimization_strategy.get('grid_battery_charge_start_hour', 7)
-            grid_battery_charge_duration = st.session_state.optimization_strategy.get('grid_battery_charge_duration', 8)
-            grid_battery_discharge_start_hour = st.session_state.optimization_strategy.get('grid_battery_discharge_start_hour', 18)
-            grid_battery_discharge_duration = st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)
-            
-            if grid_battery_adoption_percent > 0 and grid_battery_capacity > 0 and grid_battery_max_rate > 0:
-                total_evs_for_grid_battery = current_cars
-                grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
-                
-                # Use the same simple logic as PV battery
-                charge_rate = grid_battery_capacity / grid_battery_charge_duration
-                discharge_rate = grid_battery_capacity / grid_battery_discharge_duration
-                total_charge_power = grid_battery_evs * charge_rate
-                total_discharge_power = grid_battery_evs * discharge_rate
-                
-                # Apply grid battery optimization (EXACTLY like main simulation)
-                for minute in range(len(adjusted_grid_profile)):
-                    time_of_day = minute % (24 * 60)
-                    hour_of_day = time_of_day / 60
-                    
-                    # Day Phase: Battery charging (consumes grid power)
-                    if grid_battery_charge_start_hour <= hour_of_day < (grid_battery_charge_start_hour + grid_battery_charge_duration):
-                        grid_battery_charge_curve[minute] += total_charge_power
-                        adjusted_grid_profile[minute] -= total_charge_power  # Decrease available capacity
-                    
-                    # Evening Phase: Battery discharge (provides grid power)
-                    if grid_battery_discharge_start_hour <= hour_of_day < (grid_battery_discharge_start_hour + grid_battery_discharge_duration):
-                        grid_battery_discharge_curve[minute] += total_discharge_power
-                        adjusted_grid_profile[minute] += total_discharge_power  # Increase available capacity
+            # Repeat the profile to cover simulation duration
+            num_repeats = sim_duration_min // len(adjusted_margin_curve) + 1
+            adjusted_margin_curve = np.tile(adjusted_margin_curve, num_repeats)[:sim_duration_min]
         
         # NOW USE THE ACTUAL SIMULATION ENGINE (EXACTLY like normal simulation)
-        # Apply the same margin as main simulation
-        final_grid_profile = adjusted_grid_profile * available_load_fraction
+        # The margin curve already includes all battery effects, so we can use it directly
+        final_grid_profile = adjusted_margin_curve  # No need to apply available_load_fraction again
         
         # Create SimulationSetup instance with the same parameters as main simulation
         if grid_mode == "Grid Constrained":
@@ -265,7 +347,7 @@ def find_max_cars_capacity(ev_config, charger_config, time_peaks, active_strateg
             grid_power_limit=grid_power_limit,  # Same as main simulation
             verbose=False  # Same as main simulation
         )
-        simulation.grid_power_profile = adjusted_grid_profile
+        simulation.grid_power_profile = adjusted_margin_curve
         simulation.evs = []
         
         # Calculate how many V2G recharge EVs we have (same as main simulation)
