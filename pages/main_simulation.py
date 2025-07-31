@@ -2497,7 +2497,8 @@ with st.sidebar:
                         st.stop()
             # Check if we have valid data
             if power_values is None or len(power_values) == 0:
-                st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
+                st.warning("⚠️ No dataset available for capacity analysis. Please upload an Excel file with datetime and taken load data, or switch to 'Synthetic Generation' to use synthetic data.")
+                st.info("💡 You can also use the 'Generate Synthetic Curve' button to create synthetic data for analysis.")
                 st.stop()
             
             with st.spinner("Calculating maximum EV capacity..."):
@@ -3198,6 +3199,14 @@ with col1:
                     st.error(f"❌ Error generating synthetic data: {e}")
                     st.write("Please ensure the portable_models directory contains the trained models.")
                     st.stop()
+            
+            # Check if we have valid data for simulation
+            if power_values is None or len(power_values) == 0:
+                if data_source == "Real Dataset":
+                    st.warning("⚠️ No dataset uploaded. Please upload an Excel file with load data, or switch to 'Synthetic Generation' to use synthetic data.")
+                else:
+                    st.warning("⚠️ No synthetic data available. Please configure synthetic parameters and generate a load curve first.")
+                st.stop()
             
             # Run simulation and store results
             if power_values is not None and st.session_state.simulation_run:

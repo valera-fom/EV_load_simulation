@@ -205,8 +205,9 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
     
     # Check if we have valid data
     if power_values is None or (hasattr(power_values, '__len__') and len(power_values) == 0):
-        st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
-        raise ValueError("No valid dataset available")
+        st.warning("⚠️ No dataset available. Please upload an Excel file with datetime and taken load data, or switch to 'Synthetic Generation' to use synthetic data.")
+        st.info("💡 You can also use the 'Generate Synthetic Curve' button to create synthetic data for optimization.")
+        return
     
     # Initialize iteration tracking
     iteration_results = []
