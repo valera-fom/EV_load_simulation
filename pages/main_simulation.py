@@ -377,7 +377,6 @@ with st.sidebar:
                     }
                     st.session_state.time_peaks.append(new_peak)
                     st.rerun()
-                    st.rerun()
         
         with col_total_evs:
             total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
@@ -399,7 +398,6 @@ with st.sidebar:
                 with col_delete:
                     if st.button("🗑️ Delete", key=f"delete_peak_{i}", type="secondary"):
                         st.session_state.time_peaks.pop(i)
-                        st.rerun()
                         st.rerun()
             
             with st.container():
@@ -1233,9 +1231,6 @@ with st.sidebar:
                 
                 # Rerun to refresh the UI with updated values
                 st.rerun()
-                
-                # Rerun to refresh the UI with updated values
-                st.rerun()
             
             # Create columns for each period with color blocks
             period_cols = st.columns(len(timeline['periods']))
@@ -1510,7 +1505,6 @@ with st.sidebar:
                         st.session_state.time_of_use_timeline = st.session_state.original_timeline.copy()
                     
                     st.success("✅ Timeline reset to default values!")
-                    st.rerun()
                     st.rerun()
             
             with col2:
