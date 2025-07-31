@@ -40,8 +40,10 @@ class GradientOptimizer:
     def _setup_margin_curve(self):
         """Setup the margin curve for reward calculation."""
         try:
-            # Get margin ratio from session state
-            margin_ratio = st.session_state.get('available_load_fraction', 0.8)
+            # Use the SAME approach as main simulation's extract_margin_curve_from_current_data()
+            # Get current configuration
+            available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+            capacity_margin = min(0.95, available_load_fraction + 0.1)  # Add 0.1 but cap at 0.95
             
             # Get power values from session state
             power_values = st.session_state.get('power_values', None)
@@ -54,36 +56,32 @@ class GradientOptimizer:
             # Convert to numpy array if needed
             power_values = np.array(power_values)
             
-            # Apply margin ratio EXACTLY like the simulation function
-            power_values = power_values * margin_ratio
+            # Upsample 15-minute data to 1-minute intervals (EXACTLY like main simulation)
+            margin_curve = np.repeat(power_values, 15).astype(float) * capacity_margin
             
-            # Extend power_values to match load_curve length (48 hours = 2880 minutes)
-            if len(power_values) == 96:  # 24-hour data (96 15-minute intervals)
-                power_values = np.tile(power_values, 30)
-            elif len(power_values) == 48:  # 24-hour data (48 hourly intervals)
-                power_values_15min = np.repeat(power_values, 4)
-                power_values = np.tile(power_values_15min, 15)
-            elif len(power_values) == 1440:  # 24-hour minute data
-                power_values = np.tile(power_values, 2)
+            # Extend for 48 hours (2880 minutes) - EXACTLY like main simulation
+            sim_duration_min = 48 * 60  # 48 hours
+            
+            if len(margin_curve) < sim_duration_min:
+                # Repeat the profile to cover 48 hours
+                num_repeats = sim_duration_min // len(margin_curve) + 1
+                margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
             else:
-                if len(power_values) < 2880:
-                    repeats_needed = int(np.ceil(2880 / len(power_values)))
-                    power_values = np.tile(power_values, repeats_needed)
-                power_values = power_values[:2880]
+                margin_curve = margin_curve[:sim_duration_min]
             
-            # Ensure power_values matches expected length
-            if len(power_values) != 2880:
-                print(f"❌ CRITICAL: Power values length {len(power_values)} != 2880 after processing")
+            # Ensure margin_curve matches expected length
+            if len(margin_curve) != 2880:
+                print(f"❌ CRITICAL: Margin curve length {len(margin_curve)} != 2880 after processing")
                 self.margin_curve = np.zeros(2880)
                 return
             
-            # Use the margin-adjusted grid profile as the margin curve
-            self.margin_curve = np.array(power_values)
+            # Use the margin curve as calculated
+            self.margin_curve = np.array(margin_curve)
             
             # Debug output
             print(f"🔍 Margin curve setup:")
             print(f"  Original power values length: {len(st.session_state.get('power_values', []))}")
-            print(f"  Margin ratio: {margin_ratio}")
+            print(f"  Capacity margin: {capacity_margin}")
             print(f"  Final margin curve length: {len(self.margin_curve)}")
             print(f"  Margin curve stats: min={np.min(self.margin_curve):.2f}, max={np.max(self.margin_curve):.2f}, mean={np.mean(self.margin_curve):.2f}")
             

@@ -119,7 +119,7 @@ def create_dynamic_capacity_optimizer_ui():
                 st.pyplot(fig)
 
 def run_dynamic_capacity_optimization(time_step, max_iterations):
-    """Run the dynamic capacity optimization."""
+    """Run the dynamic capacity optimization with multiple iterations."""
     # Get configuration from session state
     ev_config = st.session_state.dynamic_ev
     charger_config = st.session_state.charger_config
@@ -208,9 +208,53 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
         st.error("❌ No valid dataset available. Please load a dataset or generate synthetic data first.")
         raise ValueError("No valid dataset available")
     
-    # Calculate margin curve with battery effects
-    try:
-        power_values = np.array(power_values, dtype=float)
+    # Initialize iteration tracking
+    iteration_results = []
+    current_total_evs = None  # Will be updated in each iteration
+    
+        # Run multiple iterations
+    for iteration in range(max_iterations):
+        print(f"🔄 Running iteration {iteration + 1}/{max_iterations}")
+        
+        # Set random seed for consistent battery effects between all optimizers
+        np.random.seed(st.session_state.random_seed)
+        
+        # Calculate margin curve with battery effects for this iteration
+        try:
+            power_values = np.array(power_values, dtype=float)
+        except Exception as e:
+            st.error(f"Error processing power values: {e}")
+            return None
+        
+        # For dynamic optimizer, we need to account for battery effects like the main simulation
+        # Get current configuration
+        available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+        
+        # Get current number of cars from simulation (EXACTLY like main simulation)
+        # For first iteration, use original calculation
+        # For subsequent iterations, use the optimized car count from previous iteration
+        if iteration == 0:
+            if 'time_peaks' in st.session_state and st.session_state.time_peaks:
+                current_total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+            elif 'ev_calculator' in st.session_state and 'total_evs' in st.session_state.ev_calculator:
+                current_total_evs = st.session_state.ev_calculator['total_evs']
+            else:
+                # Use a reasonable default if no peaks or calculator available
+                current_total_evs = 32  # Default fallback
+        else:
+            # Use the optimized car count from previous iteration
+            current_total_evs = iteration_results[iteration - 1]['total_cars']
+            print(f"📊 Using optimized car count from previous iteration: {current_total_evs}")
+        
+        # Get ORIGINAL number of cars for battery effects (existing infrastructure)
+        # Battery effects should use the original simulation car count, not the optimized count
+        if 'time_peaks' in st.session_state and st.session_state.time_peaks:
+            original_total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
+        elif 'ev_calculator' in st.session_state and 'total_evs' in st.session_state.ev_calculator:
+            original_total_evs = st.session_state.ev_calculator['total_evs']
+        else:
+            # Use a reasonable default if no peaks or calculator available
+            original_total_evs = 32  # Default fallback
         
         # Upsample 15-minute data to 1-minute intervals (EXACTLY like main simulation)
         grid_profile_full = np.repeat(power_values, 15).astype(float)
@@ -218,11 +262,10 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
         # Apply battery effects to grid profile (EXACTLY like main simulation)
         adjusted_grid_profile = grid_profile_full.copy()
         
+        # Define simulation duration (always needed)
+        sim_duration_min = 48 * 60  # 48 hours
+        
         # Apply PV + Battery optimization if enabled (charging during day, discharging during evening)
-        pv_battery_support_adjusted = np.zeros_like(grid_profile_full)
-        pv_battery_charge_curve = np.zeros_like(grid_profile_full)
-        pv_direct_support_curve = np.zeros_like(grid_profile_full)
-        pv_battery_discharge_curve = np.zeros_like(grid_profile_full)
         if 'pv_battery' in active_strategies:
             pv_adoption_percent = st.session_state.optimization_strategy.get('pv_adoption_percent', 0)
             battery_capacity = st.session_state.optimization_strategy.get('battery_capacity', 0)
@@ -238,8 +281,8 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
             actual_discharge_rate = st.session_state.optimization_strategy.get('actual_discharge_rate', max_discharge_rate)
             
             if pv_adoption_percent > 0 and battery_capacity > 0 and max_charge_rate > 0 and actual_discharge_rate > 0:
-                # Use a reasonable number of EVs for battery calculation (not too many, not too few)
-                total_evs_for_pv = 100  # Use 100 EVs for battery calculation
+                # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                total_evs_for_pv = original_total_evs
                 pv_evs = int(total_evs_for_pv * pv_adoption_percent / 100)
                 total_charge_power = pv_evs * max_charge_rate
                 total_system_support_power = pv_evs * max_charge_rate  # Same as charge rate for system support
@@ -294,49 +337,37 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
                                 # Calculate remaining power for grid support
                                 ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
                                 
-                                # Apply battery charging (no grid effect - PV charges batteries directly)
-                                pv_battery_charge_curve[minute] += ev_required_charging_rate
+                                # Apply grid support (increases available capacity)
+                                if ev_grid_support_power > 0:
+                                    adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                        else:
+                            # System support period is within same day, use modulo logic
+                            time_of_day = minute % (24 * 60)
+                            if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
+                                # Calculate total PV power available for this EV
+                                ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
+                                
+                                # Calculate remaining power for grid support
+                                ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
                                 
                                 # Apply grid support (increases available capacity)
                                 if ev_grid_support_power > 0:
-                                    pv_direct_support_curve[minute] += ev_grid_support_power
                                     adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
+                            
+                            # Evening Phase: Battery discharge for this EV
+                            if ev_discharge_end_minute > 24 * 60:
+                                # Discharging period extends beyond 24 hours, use absolute time
+                                if (minute >= ev_discharge_start_minute and minute < ev_discharge_end_minute):
+                                    ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
+                                    adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
                             else:
-                                # System support period is within same day, use modulo logic
+                                # Discharging period is within same day, use modulo logic
                                 time_of_day = minute % (24 * 60)
-                                if (time_of_day >= ev_pv_start_minute and time_of_day < ev_system_support_end_minute):
-                                    # Calculate total PV power available for this EV
-                                    ev_total_pv_power = total_system_support_power / pv_evs  # Divide by number of EVs
-                                    
-                                    # Calculate remaining power for grid support
-                                    ev_grid_support_power = max(0, ev_total_pv_power - ev_required_charging_rate)
-                                    
-                                    # Apply battery charging (no grid effect - PV charges batteries directly)
-                                    pv_battery_charge_curve[minute] += ev_required_charging_rate
-                                    
-                                    # Apply grid support (increases available capacity)
-                                    if ev_grid_support_power > 0:
-                                        pv_direct_support_curve[minute] += ev_grid_support_power
-                                        adjusted_grid_profile[minute] += ev_grid_support_power  # Increase available capacity
-                                
-                                # Evening Phase: Battery discharge for this EV
-                                if ev_discharge_end_minute > 24 * 60:
-                                    # Discharging period extends beyond 24 hours, use absolute time
-                                    if (minute >= ev_discharge_start_minute and minute < ev_discharge_end_minute):
-                                        ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
-                                        pv_battery_discharge_curve[minute] += ev_discharge_power
-                                        adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
-                                else:
-                                    # Discharging period is within same day, use modulo logic
-                                    time_of_day = minute % (24 * 60)
-                                    if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
-                                        ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
-                                        pv_battery_discharge_curve[minute] += ev_discharge_power
-                                        adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
+                                if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
+                                    ev_discharge_power = total_discharge_power / pv_evs  # Divide by number of EVs
+                                    adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
         
         # Apply Grid-Charged Batteries optimization if enabled
-        grid_battery_charge_curve = np.zeros_like(grid_profile_full)
-        grid_battery_discharge_curve = np.zeros_like(grid_profile_full)
         if 'grid_battery' in active_strategies:
             grid_battery_adoption_percent = st.session_state.optimization_strategy.get('grid_battery_adoption_percent', 0)
             grid_battery_capacity = st.session_state.optimization_strategy.get('grid_battery_capacity', 0)
@@ -347,8 +378,8 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
             grid_battery_discharge_duration = st.session_state.optimization_strategy.get('grid_battery_discharge_duration', 4)
             
             if grid_battery_adoption_percent > 0 and grid_battery_capacity > 0 and grid_battery_max_rate > 0:
-                # Use a reasonable number of EVs for battery calculation
-                total_evs_for_grid_battery = 100  # Use 100 EVs for battery calculation
+                # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                total_evs_for_grid_battery = original_total_evs
                 grid_battery_evs = int(total_evs_for_grid_battery * grid_battery_adoption_percent / 100)
                 
                 # Generate variable start times
@@ -383,17 +414,14 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
                         # Charging phase (reduces available capacity)
                         if (time_of_day >= ev_charge_start_minute and time_of_day < ev_charge_end_minute):
                             ev_charge_power = grid_battery_max_rate
-                            grid_battery_charge_curve[minute] += ev_charge_power
                             adjusted_grid_profile[minute] -= ev_charge_power  # Decrease available capacity
                         
                         # Discharging phase (increases available capacity)
                         elif (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
                             ev_discharge_power = grid_battery_max_rate
-                            grid_battery_discharge_curve[minute] += ev_discharge_power
                             adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
         
         # Apply V2G optimization if enabled
-        v2g_discharge_curve = np.zeros_like(grid_profile_full)
         if 'v2g' in active_strategies:
             v2g_adoption_percent = st.session_state.optimization_strategy.get('v2g_adoption_percent', 0)
             v2g_max_discharge_rate = st.session_state.optimization_strategy.get('v2g_max_discharge_rate', 0)
@@ -401,8 +429,8 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
             v2g_discharge_duration = st.session_state.optimization_strategy.get('v2g_discharge_duration', 3)
             
             if v2g_adoption_percent > 0 and v2g_max_discharge_rate > 0:
-                # Use a reasonable number of EVs for V2G calculation
-                total_evs_for_v2g = 100  # Use 100 EVs for V2G calculation
+                # Use the ORIGINAL number of EVs for battery effects (existing infrastructure)
+                total_evs_for_v2g = original_total_evs
                 v2g_evs = int(total_evs_for_v2g * v2g_adoption_percent / 100)
                 
                 # Generate variable start times
@@ -430,117 +458,132 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
                         # Discharging phase (increases available capacity)
                         if (time_of_day >= ev_discharge_start_minute and time_of_day < ev_discharge_end_minute):
                             ev_discharge_power = v2g_max_discharge_rate
-                            v2g_discharge_curve[minute] += ev_discharge_power
                             adjusted_grid_profile[minute] += ev_discharge_power  # Increase available capacity
         
-        # Apply margin to the adjusted grid profile
+        # Apply margin to the adjusted grid profile (EXACTLY like main simulation)
         margin_curve = adjusted_grid_profile * available_load_fraction
         
-    except Exception as e:
-        raise ValueError(f"Invalid power_values data: {e}")
-    
-    # Extend to 48 hours if needed (cars only added for 48 hours)
-    sim_duration_min = 48 * 60
-    if len(margin_curve) < sim_duration_min:
-        num_repeats = sim_duration_min // len(margin_curve) + 1
-        margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
-    
-    # Convert to time step intervals
-    step_duration = time_step
-    num_steps = sim_duration_min // step_duration
-    margin_curve_steps = margin_curve[::step_duration][:num_steps]
-    
-    # Initialize tracking arrays
-    total_cars = 0
-    cars_added_per_step = []
-    active_cars_per_step = []
-    ev_charging_rate = min(ev_config.get('AC', 11), charger_config.get('ac_rate', 11))
-    ev_capacity = ev_config.get('capacity', 75)
-    
-    # Track charging cars: (start_step, end_step, car_id)
-    charging_cars = []
-    car_id_counter = 0
-    
-    # Optimization parameters
-    max_cars_per_step = 5  # Limit cars added per step for smoothness
-    buffer_factor = 0.8  # Use only 80% of available capacity for safety
-    look_ahead_steps = 20  # Check future steps for safety
-    
-    # Calculate margin curve gradient for predictive logic
-    margin_gradient = np.gradient(margin_curve_steps)
-    
-    # Run simulation with dynamic car addition
-    current_load = np.zeros(num_steps)
-    
-    for step in range(num_steps):
-        # First, update current load based on cars that are still charging from previous steps
-        current_load[step] = sum(ev_charging_rate for start, end, _ in charging_cars if start <= step < end)
+        # Extend for 48 hours (2880 minutes) - EXACTLY like main simulation
+        if len(margin_curve) < sim_duration_min:
+            # Repeat the profile to cover 48 hours
+            num_repeats = sim_duration_min // len(margin_curve) + 1
+            margin_curve = np.tile(margin_curve, num_repeats)[:sim_duration_min]
+        else:
+            margin_curve = margin_curve[:sim_duration_min]
         
-        # Calculate available power at this step with buffer
-        available_power = float(margin_curve_steps[step] - current_load[step]) * buffer_factor
+        # Convert to time step intervals
+        step_duration = time_step
+        num_steps = sim_duration_min // step_duration
+        margin_curve_steps = margin_curve[::step_duration][:num_steps]
         
-        if available_power > 0:
-            # 1. GRADIENT-BASED: Adjust based on margin curve trend
-            gradient_factor = 1.0 if margin_gradient[step] >= 0 else 0.5
+        # Initialize tracking arrays
+        total_cars = 0
+        cars_added_per_step = []
+        active_cars_per_step = []
+        ev_charging_rate = min(ev_config.get('AC', 11), charger_config.get('ac_rate', 11))
+        ev_capacity = ev_config.get('capacity', 75)
+        
+        # Track charging cars: (start_step, end_step, car_id)
+        charging_cars = []
+        car_id_counter = 0
+        
+        # Optimization parameters
+        max_cars_per_step = 5  # Limit cars added per step for smoothness
+        buffer_factor = 0.8  # Use only 80% of available capacity for safety
+        look_ahead_steps = 20  # Check future steps for safety
+        
+        # Calculate margin curve gradient for predictive logic
+        margin_gradient = np.gradient(margin_curve_steps)
+        
+        # Run simulation with dynamic car addition
+        current_load = np.zeros(num_steps)
+        
+        for step in range(num_steps):
+            # First, update current load based on cars that are still charging from previous steps
+            current_load[step] = sum(ev_charging_rate for start, end, _ in charging_cars if start <= step < end)
             
-            # 2. LOOK-AHEAD: Check if adding cars now will cause future problems
-            safe_to_add = True
-            if step + look_ahead_steps < num_steps:
-                future_margin = margin_curve_steps[step:step+look_ahead_steps]
-                future_load = current_load[step:step+look_ahead_steps]
-                # Check if adding one car would cause overflow in next N steps
-                test_load = future_load + ev_charging_rate
-                safe_to_add = all(future_margin[i] >= test_load[i] for i in range(look_ahead_steps))
+            # Calculate available power at this step with buffer
+            available_power = float(margin_curve_steps[step] - current_load[step]) * buffer_factor
             
-            # 3. SMOOTHING: Limit cars added per step
-            cars_that_fit = int((available_power / ev_charging_rate) * gradient_factor)
-            cars_that_fit = min(cars_that_fit, max_cars_per_step)
-            
-            # Additional smoothing for early steps to prevent large spikes
-            if step < 50:  # First 50 steps
-                cars_that_fit = min(cars_that_fit, 2)  # Max 2 cars per step early on
-            
-            if cars_that_fit > 0 and safe_to_add:
-                # Add cars to simulation
-                total_cars += cars_that_fit
-                cars_added_per_step.append(cars_that_fit)
+            if available_power > 0:
+                # 1. GRADIENT-BASED: Adjust based on margin curve trend
+                gradient_factor = 1.0 if margin_gradient[step] >= 0 else 0.5
                 
-                # Calculate charging duration for these cars (charge to full capacity)
-                # Convert step_duration from minutes to hours for proper calculation
-                step_duration_hours = step_duration / 60.0
-                charging_time_hours = ev_capacity / ev_charging_rate
-                charging_time_steps = max(1, int(charging_time_hours / step_duration_hours))
-                end_step = min(step + charging_time_steps, num_steps)
+                # 2. LOOK-AHEAD: Check if adding cars now will cause future problems
+                safe_to_add = True
+                if step + look_ahead_steps < num_steps:
+                    future_margin = margin_curve_steps[step:step+look_ahead_steps]
+                    future_load = current_load[step:step+look_ahead_steps]
+                    # Check if adding one car would cause overflow in next N steps
+                    test_load = future_load + ev_charging_rate
+                    safe_to_add = all(future_margin[i] >= test_load[i] for i in range(look_ahead_steps))
                 
-                # Add charging cars to tracking
-                for _ in range(cars_that_fit):
-                    charging_cars.append((step, end_step, car_id_counter))
-                    car_id_counter += 1
+                # 3. SMOOTHING: Limit cars added per step
+                cars_that_fit = int((available_power / ev_charging_rate) * gradient_factor)
+                cars_that_fit = min(cars_that_fit, max_cars_per_step)
                 
-                # Update load for the charging duration (these cars will charge until full)
-                for future_step in range(step, end_step):
-                    if future_step < num_steps:
-                        current_load[future_step] += cars_that_fit * ev_charging_rate
+                # Additional smoothing for early steps to prevent large spikes
+                if step < 50:  # First 50 steps
+                    cars_that_fit = min(cars_that_fit, 2)  # Max 2 cars per step early on
+                
+                if cars_that_fit > 0 and safe_to_add:
+                    # Add cars to simulation
+                    total_cars += cars_that_fit
+                    cars_added_per_step.append(cars_that_fit)
+                    
+                    # Calculate charging duration for these cars (charge to full capacity)
+                    # Convert step_duration from minutes to hours for proper calculation
+                    step_duration_hours = step_duration / 60.0
+                    charging_time_hours = ev_capacity / ev_charging_rate
+                    charging_time_steps = max(1, int(charging_time_hours / step_duration_hours))
+                    end_step = min(step + charging_time_steps, num_steps)
+                    
+                    # Add charging cars to tracking
+                    for _ in range(cars_that_fit):
+                        charging_cars.append((step, end_step, car_id_counter))
+                        car_id_counter += 1
+                    
+                    # Update load for the charging duration (these cars will charge until full)
+                    for future_step in range(step, end_step):
+                        if future_step < num_steps:
+                            current_load[future_step] += cars_that_fit * ev_charging_rate
+                else:
+                    cars_added_per_step.append(0)
             else:
                 cars_added_per_step.append(0)
-        else:
-            cars_added_per_step.append(0)
+            
+            # Count how many cars are actively charging at this step
+            active_cars = sum(1 for start, end, _ in charging_cars if start <= step < end)
+            active_cars_per_step.append(active_cars)
         
-        # Count how many cars are actively charging at this step
-        active_cars = sum(1 for start, end, _ in charging_cars if start <= step < end)
-        active_cars_per_step.append(active_cars)
+        # Aggregate results by TOU periods
+        period_results = aggregate_by_tou_periods(active_cars_per_step, tou_periods, step_duration)
         
-    # Aggregate results by TOU periods
-    period_results = aggregate_by_tou_periods(active_cars_per_step, tou_periods, step_duration)
+        # Store iteration results
+        iteration_result = {
+            'iteration': iteration + 1,
+            'total_cars': total_cars,
+            'cars_added_per_step': cars_added_per_step,
+            'active_cars_per_step': active_cars_per_step,
+            'period_results': period_results,
+            'margin_curve': margin_curve_steps,
+            'final_load': current_load,
+            'battery_adjusted_evs': current_total_evs
+        }
+        
+        iteration_results.append(iteration_result)
+        print(f"✅ Iteration {iteration + 1} completed: {total_cars} cars optimized")
     
-    return {
-        'total_cars': total_cars,
-        'cars_added_per_step': cars_added_per_step,
-        'active_cars_per_step': active_cars_per_step,
-        'period_results': period_results,
-        'margin_curve': margin_curve_steps,
-        'final_load': current_load
+    # Return the final iteration results and summary
+    final_result = iteration_results[-1]  # Use the last iteration as final result
+    final_result['all_iterations'] = iteration_results
+    final_result['convergence'] = {
+        'total_iterations': max_iterations,
+        'final_car_count': final_result['total_cars'],
+        'car_count_progression': [r['total_cars'] for r in iteration_results]
     }
+    
+    return final_result
 
 def aggregate_by_tou_periods(active_cars_per_step, tou_periods, step_duration):
     """Aggregate active cars by TOU periods (car-hours)."""
