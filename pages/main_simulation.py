@@ -1,3 +1,5 @@
+
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -52,7 +54,7 @@ try:
         optimize_tou_periods_24h, 
         convert_to_simulation_format, 
         validate_periods
-    )
+)
 except ImportError as e:
     st.error(f"Failed to import tou_optimizer: {e}")
     st.stop()
@@ -2613,7 +2615,17 @@ with st.sidebar:
             st.warning("Please enter a valid number of substations (greater than 0)")
             evs_per_substation = 0
 
-
+    # Save Results
+    with st.expander("💾 Save Results", expanded=False):
+        try:
+            from pages.components.pdf_generator import render_pdf_save_ui
+            render_pdf_save_ui()
+        except ImportError as import_err:
+            st.error(f"❌ PDF generator module not found: {import_err}")
+            st.info("💡 Please ensure all components are properly installed.")
+        except Exception as e:
+            st.error(f"❌ Error in PDF generator: {e}")
+            st.info("💡 This might be due to missing dependencies or OpenSSL compatibility issues.")
 
     # Dataset Selection
     with st.expander("📊 Dataset Selection", expanded=False):
@@ -2963,70 +2975,70 @@ with col1:
                 st.session_state.random_seed = random.randint(1, 10000)
                 st.info(f"🎲 Auto-generated new seed: {st.session_state.random_seed}")
             
-            # Clear any existing results first
-            if 'simulation_results' in st.session_state:
-                del st.session_state.simulation_results
-            
-            # Update session state with current values
-            st.session_state.dynamic_ev = {
-                'capacity': st.session_state.dynamic_ev['capacity'],
-                'AC': st.session_state.dynamic_ev['AC']
-            }
-            st.session_state.charger_config = {
-                'ac_rate': st.session_state.charger_config['ac_rate'],
-                'ac_count': st.session_state.charger_config['ac_count']
-            }
-            
-            # Set simulation run flag and just_run flag
-            st.session_state.simulation_run = True
-            st.session_state.simulation_just_run = True
-            
-            # Handle synthetic data generation if needed
-            if data_source == "Synthetic Generation" and (power_values is None or len(power_values) == 0):
-                st.info("🎲 Generating synthetic load curve based on current parameters...")
-                try:
-                    # Import the portable load generator
-                    import sys
-                    import os
-                    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    
-                    from portable_load_generator import generate_load_curve
-                    
-                    # Get current synthetic parameters
-                    synthetic_params = st.session_state.get('synthetic_params', {})
-                    season = synthetic_params.get('season', 'winter')
-                    day_type = synthetic_params.get('day_type', 'weekday')
-                    max_power = synthetic_params.get('max_power', 400)
-                    diversity_mode = synthetic_params.get('diversity_mode', 'high')
-                    
-                    # Generate the load curve
-                    result = generate_load_curve(
-                        season=season,
-                        day_type=day_type,
-                        max_power=max_power,
-                        diversity_mode=diversity_mode,
-                        models_dir="portable_models",
-                        return_timestamps=True
-                    )
-                    
-                    # Store the generated data in session state
-                    st.session_state.synthetic_load_curve = result['load_curve']
-                    st.session_state.synthetic_timestamps = result['timestamps']
-                    st.session_state.synthetic_metadata = result['metadata']
-                    
-                    # Update power_values for simulation
-                    power_values = result['load_curve']
-                    st.success(f"✅ Synthetic load curve generated automatically for simulation!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error generating synthetic data: {e}")
-                    st.write("Please ensure the portable_models directory contains the trained models.")
-                    st.stop()
-            
-            # Run simulation and store results
-            if power_values is not None:
-                # Create dynamic EV model
-                dynamic_ev_model = {
+        # Clear any existing results first
+        if 'simulation_results' in st.session_state:
+            del st.session_state.simulation_results
+        
+        # Update session state with current values
+        st.session_state.dynamic_ev = {
+            'capacity': st.session_state.dynamic_ev['capacity'],
+            'AC': st.session_state.dynamic_ev['AC']
+        }
+        st.session_state.charger_config = {
+            'ac_rate': st.session_state.charger_config['ac_rate'],
+            'ac_count': st.session_state.charger_config['ac_count']
+        }
+        
+        # Set simulation run flag and just_run flag
+        st.session_state.simulation_run = True
+        st.session_state.simulation_just_run = True
+        
+        # Handle synthetic data generation if needed
+        if data_source == "Synthetic Generation" and (power_values is None or len(power_values) == 0):
+            st.info("🎲 Generating synthetic load curve based on current parameters...")
+            try:
+                # Import the portable load generator
+                import sys
+                import os
+                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                
+                from portable_load_generator import generate_load_curve
+                
+                # Get current synthetic parameters
+                synthetic_params = st.session_state.get('synthetic_params', {})
+                season = synthetic_params.get('season', 'winter')
+                day_type = synthetic_params.get('day_type', 'weekday')
+                max_power = synthetic_params.get('max_power', 400)
+                diversity_mode = synthetic_params.get('diversity_mode', 'high')
+                
+                # Generate the load curve
+                result = generate_load_curve(
+                    season=season,
+                    day_type=day_type,
+                    max_power=max_power,
+                    diversity_mode=diversity_mode,
+                    models_dir="portable_models",
+                    return_timestamps=True
+                )
+                
+                # Store the generated data in session state
+                st.session_state.synthetic_load_curve = result['load_curve']
+                st.session_state.synthetic_timestamps = result['timestamps']
+                st.session_state.synthetic_metadata = result['metadata']
+                
+                # Update power_values for simulation
+                power_values = result['load_curve']
+                st.success(f"✅ Synthetic load curve generated automatically for simulation!")
+                
+            except Exception as e:
+                st.error(f"❌ Error generating synthetic data: {e}")
+                st.write("Please ensure the portable_models directory contains the trained models.")
+                st.stop()
+        
+        # Run simulation and store results
+        if power_values is not None:
+            # Create dynamic EV model
+            dynamic_ev_model = {
                 'name': 'Custom EV',
                 'capacity': st.session_state.dynamic_ev['capacity'],
                 'AC': st.session_state.dynamic_ev['AC']
@@ -3706,6 +3718,28 @@ with col1:
                 avg_queue_time = np.mean(queue_times) if queue_times else 0
                 num_queued_evs = len(queue_times)
                 
+                # Calculate summary statistics for PDF report
+                load_curve = constrained_load_curve
+                summary_stats = {
+                    'Maximum Load': np.max(load_curve),
+                    'Average Load': np.mean(load_curve),
+                    'Minimum Load': np.min(load_curve),
+                    'Load Range': np.max(load_curve) - np.min(load_curve),
+                    'Peak-to-Average Ratio': np.max(load_curve) / np.mean(load_curve) if np.mean(load_curve) > 0 else 0,
+                }
+                
+                # Create simulation parameters for PDF report
+                simulation_parameters = {
+                    'Total EVs': total_evs,
+                    'Simulation Duration': f"{sim_duration} hours",
+                    'Smart Charging Applied': 'smart_charging' in st.session_state.get('active_strategies', []),
+                    'Smart Charging %': st.session_state.optimization_strategy.get('smart_charging_percent', 0),
+                    'PV + Battery Applied': 'pv_battery' in st.session_state.get('active_strategies', []),
+                    'PV Adoption %': st.session_state.optimization_strategy.get('pv_adoption_percent', 0),
+                    'Grid Battery Applied': 'grid_battery' in st.session_state.get('active_strategies', []),
+                    'V2G Applied': 'v2g' in st.session_state.get('active_strategies', []),
+                }
+                
                 st.session_state.simulation_results = {
                     'load_curve': constrained_load_curve,
                     'original_load_curve': constrained_load_curve,  # This is the simulation result
@@ -3756,7 +3790,10 @@ with col1:
                     'v2g_recharge_arrival_hour': st.session_state.optimization_strategy.get('v2g_recharge_arrival_hour', 26),
                     # Synthetic data information
                     'using_synthetic_data': using_synthetic_data,
-                    'synthetic_metadata': st.session_state.get('synthetic_metadata', None)
+                    'synthetic_metadata': st.session_state.get('synthetic_metadata', None),
+                    # Add structured data for PDF generation
+                    'simulation_parameters': simulation_parameters,
+                    'summary_stats': summary_stats,
                 }
                 
             except Exception as e:
@@ -4167,6 +4204,9 @@ with col1:
         plt.tight_layout()
         
         st.pyplot(fig)
+        
+        # Save the figure to session state for PDF generation
+        st.session_state.main_simulation_figure = fig
         
         # Show info message if graph was auto-resized due to battery effects
         if show_battery_effects and results['grid_limit'] is not None:
