@@ -868,9 +868,7 @@ def create_reportlab_pdf(simulation_results, simulation_description, include_opt
                 else:
                     story.append(Paragraph("TOU configuration is empty or invalid", normal_style))
                 
-                # Add debug information
-                story.append(Spacer(1, 5))
-                story.append(Paragraph(f"Debug Info: TOU enabled={tou_enabled}, data source={tou_source}", normal_style))
+                
             
             story.append(Spacer(1, 15))
         

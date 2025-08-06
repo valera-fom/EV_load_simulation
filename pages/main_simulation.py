@@ -2884,7 +2884,7 @@ with st.sidebar:
                                 st.write(f"**File:** {uploaded_file.name}")
                                 st.write(f"**Date:** {selected_date}")
                                 
-                                # Show curve preview with both taken_load and available_load
+                                # Show curve preview with available_load and margin
                                 fig, ax = plt.subplots(figsize=(10, 4))
                                 
                                 # Calculate time axis based on actual data length
@@ -2896,9 +2896,14 @@ with st.sidebar:
                                 # Create time axis in hours
                                 time_hours = np.arange(len(power_values)) * interval_minutes / 60
                                 
+                                # Calculate margin line (available_load with safety margin)
+                                available_load_fraction = st.session_state.get('available_load_fraction', 0.8)
+                                capacity_margin = min(0.95, available_load_fraction + 0.1)  # Add 0.1 but cap at 0.95
+                                margin_line = available_load * capacity_margin
+                                
                                 # Plot the data
-                                ax.plot(time_hours, power_values, linewidth=1, alpha=0.8, color='blue', label='Taken Load')
-                                ax.plot(time_hours, available_load, linewidth=1, alpha=0.8, color='red', label='Available Load')
+                                ax.plot(time_hours, available_load, linewidth=1, alpha=0.8, color='blue', label='Available Load')
+                                ax.plot(time_hours, margin_line, linewidth=1, alpha=0.8, color='red', label='Margin')
                                 ax.set_title("Dataset Load Curve Preview")
                                 ax.set_xlabel("Time (hours)")
                                 ax.set_ylabel("Load (kW)")
