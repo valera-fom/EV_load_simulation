@@ -130,10 +130,7 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
     data_source = st.session_state.get('data_source', 'Real Dataset')
     power_values = st.session_state.get('power_values', None)
     
-    # Debug output for TOU periods
-    print(f"🔍 Dynamic Optimizer Debug - {len(tou_periods)} TOU periods:")
-    for period in tou_periods:
-        print(f"  {period['name']}: {period['start']}-{period['end']}h, {period['adoption']:.1f}%")
+    # Debug output removed for production
     
     # Handle data loading/generation (EXACTLY like main simulation)
     if data_source == "Synthetic Generation":
@@ -215,7 +212,7 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
     
         # Run multiple iterations
     for iteration in range(max_iterations):
-        print(f"🔄 Running iteration {iteration + 1}/{max_iterations}")
+        # Progress indicator removed for production
         
         # Set random seed for consistent battery effects between all optimizers
         np.random.seed(st.session_state.random_seed)
@@ -238,7 +235,7 @@ def run_dynamic_capacity_optimization(time_step, max_iterations):
         else:
             # Use the optimized car count from previous iteration
             current_total_evs = iteration_results[iteration - 1]['total_cars']
-            print(f"📊 Using optimized car count from previous iteration: {current_total_evs}")
+            # Debug output removed for production
         
         # Use the same margin curve extraction as TOU optimizer
         # This ensures we use the correct data source and apply all battery effects consistently
@@ -719,38 +716,28 @@ def display_optimization_results(results, time_step, max_iterations):
         # Get all margin curve values for this period across all its parts
         period_margin_values = []
         
-        print(f"🔍 DEBUG: Processing {period_name} - Period data: {period}")
-        
         # Handle multi-part periods by collecting all steps from all parts
         for day in range(2):  # 48 hours = 2 days
             # Convert start/end hours to list of hours for this period
             start_hour = period.get('start', 0)
             end_hour = period.get('end', 24)
             period_hours = list(range(start_hour, end_hour))
-            print(f"🔍 DEBUG: {period_name} - Day {day}, Start: {start_hour}, End: {end_hour}, Hours: {period_hours}")
             
             for hour in period_hours:
                 # Convert hour to step index for this day
                 day_hour = hour + (day * 24)
                 step_index = int(day_hour / step_duration_hours)
                 
-                print(f"🔍 DEBUG: {period_name} - Hour {hour} -> Day hour {day_hour} -> Step {step_index}")
-                
                 # Ensure index is within bounds
                 if 0 <= step_index < len(results['margin_curve']):
                     margin_value = results['margin_curve'][step_index]
                     period_margin_values.append(margin_value)
-                    print(f"🔍 DEBUG: {period_name} - Added margin value: {margin_value:.1f} kW")
-                else:
-                    print(f"🔍 DEBUG: {period_name} - Step {step_index} out of bounds (max: {len(results['margin_curve'])})")
         
         # Calculate average capacity for this period
         if period_margin_values:
             period_avg_capacities[period_name] = np.mean(period_margin_values)
-            print(f"🔍 DEBUG: {period_name} - Final average capacity: {period_avg_capacities[period_name]:.1f} kW from {len(period_margin_values)} values")
         else:
             period_avg_capacities[period_name] = 0
-            print(f"🔍 DEBUG: {period_name} - No margin values found, setting to 0")
     
     # Calculate simple percentages and apply them directly (no complex normalization)
     capacity_weighted_values = {}
@@ -765,7 +752,7 @@ def display_optimization_results(results, time_step, max_iterations):
         capacity_weight = 2.0  # Weight factor - squaring the capacity for stronger effect
         capacity_weighted = original_percentage * (avg_capacity ** capacity_weight) / (100.0 ** capacity_weight)  # Square the capacity
         
-        print(f"🔍 DEBUG: {period_name} - Original: {original_percentage:.1f}%, Avg Capacity: {avg_capacity:.1f} kW, Squared: {(avg_capacity ** capacity_weight):.1f}, Weighted: {capacity_weighted:.1f}")
+        # Debug output removed for production
         
         capacity_weighted_values[period_name] = capacity_weighted
         total_capacity_weighted += capacity_weighted
@@ -862,9 +849,7 @@ def display_optimization_results(results, time_step, max_iterations):
     # Use the final normalized percentages that are already calculated and applied to TOU periods
     optimized_tou_values = {}
     
-    # Debug output to verify final percentages
-    print(f"🔍 Gradient Optimizer UI Debug - {len(tou_periods)} periods:")
-    print(f"  Using final normalized percentages from table calculation")
+    # Debug output removed for production
     
     # Create a flexible mapping system that works with any number of periods
     # Only map periods that actually exist to avoid conflicts
@@ -906,7 +891,7 @@ def display_optimization_results(results, time_step, max_iterations):
         if 'tou_peak' in optimized_tou_values:
             del optimized_tou_values['tou_peak']
     
-    print(f"  Final optimized_tou_values: {optimized_tou_values}")
+    # Debug output removed for production
     
     st.session_state.optimized_tou_values = optimized_tou_values
     

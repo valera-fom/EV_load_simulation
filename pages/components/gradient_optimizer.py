@@ -78,12 +78,7 @@ class GradientOptimizer:
             # Use the margin curve as calculated
             self.margin_curve = np.array(margin_curve)
             
-            # Debug output
-            print(f"🔍 Margin curve setup:")
-            print(f"  Original power values length: {len(st.session_state.get('power_values', []))}")
-            print(f"  Capacity margin: {capacity_margin}")
-            print(f"  Final margin curve length: {len(self.margin_curve)}")
-            print(f"  Margin curve stats: min={np.min(self.margin_curve):.2f}, max={np.max(self.margin_curve):.2f}, mean={np.mean(self.margin_curve):.2f}")
+            # Debug output removed for production
             
         except Exception as e:
             print(f"❌ CRITICAL: Error setting up margin curve: {e}")
@@ -103,13 +98,7 @@ class GradientOptimizer:
             load_curve_filtered = load_curve[start_minute:end_minute]
             margin_curve_filtered = self.margin_curve[start_minute:end_minute]
             
-            # Debug margin curve info (only for first few iterations)
-            if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-                print(f"🔍 Margin curve debug:")
-                print(f"  Margin curve length: {len(self.margin_curve)}")
-                print(f"  Load curve length: {len(load_curve)}")
-                print(f"  Filtered margin stats: min={np.min(margin_curve_filtered):.2f}, max={np.max(margin_curve_filtered):.2f}, mean={np.mean(margin_curve_filtered):.2f}")
-                print(f"  Filtered load stats: min={np.min(load_curve_filtered):.2f}, max={np.max(load_curve_filtered):.2f}, mean={np.mean(load_curve_filtered):.2f}")
+            # Debug output removed for production
             
             # Ensure we have valid data
             if len(load_curve_filtered) == 0 or len(margin_curve_filtered) == 0:
@@ -229,29 +218,11 @@ class GradientOptimizer:
     def _evaluate_point(self, params):
         """Evaluate a point by running simulation and calculating reward."""
         try:
-            # Only show debug for first few iterations
-            if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-                print(f"🔄 Running simulation with params: {params}")
-            
             # Run simulation with these parameters
             load_curve = self.simulation_function(params)
             
-            # Only show debug for first few iterations
-            if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-                print(f"📊 Simulation result - Load curve stats:")
-                print(f"  Length: {len(load_curve)}")
-                print(f"  Min: {np.min(load_curve):.2f}")
-                print(f"  Max: {np.max(load_curve):.2f}")
-                print(f"  Mean: {np.mean(load_curve):.2f}")
-                print(f"  Non-zero points: {np.sum(load_curve > 0)}")
-            
             # Calculate reward
             reward = self._calculate_reward(load_curve, params)
-            
-            # Only show debug for first few iterations
-            if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-                print(f"🎯 Calculated reward: {reward:.3f}")
-                print(f"  " + "="*40)
             
             return reward
             
@@ -262,10 +233,6 @@ class GradientOptimizer:
     def _finite_difference_gradient(self, params, epsilon=0.1):
         """Calculate gradients using finite differences."""
         gradients = []
-        
-        # Only show debug for first few iterations
-        if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-            print(f"🔍 Calculating gradients for params: {params}")
         
         for param_name in self.parameter_names:
             # Create perturbed parameters
@@ -288,13 +255,9 @@ class GradientOptimizer:
             gradient = (f_plus - f_minus) / (2 * epsilon)
             gradients.append(gradient)
             
-            # Only show debug for first few iterations
-            if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-                print(f"  📊 {param_name}: f(+ε)={f_plus:.3f}, f(-ε)={f_minus:.3f}, gradient={gradient:.3f}")
+            # Debug output removed for production
         
-        # Only show debug for first few iterations
-        if hasattr(self, '_iteration_count') and self._iteration_count <= 3:
-            print(f"🎯 Final gradients: {gradients}")
+        # Debug output removed for production
         
         return np.array(gradients)
     
@@ -412,17 +375,16 @@ def create_gradient_optimizer(num_periods: int = 4) -> GradientOptimizer:
             param_name = period_parameters[period_name]
             parameter_bounds[param_name] = (20, 30)  # Equal bounds for all periods
     
-    print(f"🔍 Gradient Optimizer Debug - Creating optimizer for {num_periods} periods:")
-    print(f"  Parameter bounds: {parameter_bounds}")
+    # Debug output removed for production
     
     return GradientOptimizer(parameter_bounds)
 
 if __name__ == "__main__":
     # Test the Gradient Optimizer with different numbers of periods
     for num_periods in [2, 3, 4, 5]:
-        print(f"\n🔍 Testing Gradient Optimizer with {num_periods} periods:")
+        # Debug output removed for production
         optimizer = create_gradient_optimizer(num_periods)
-        print(f"✅ Gradient Optimizer created with {optimizer.n_parameters} parameters")
+        # Debug output removed for production
         
         # Example simulation function (placeholder)
         def test_simulation(params):

@@ -102,14 +102,7 @@ def optimize_tou_periods_24h(margin_curve: List[float], num_periods: int = 4) ->
     for period in periods:
         period['adoption'] = equal_adoption
     
-    # Debug output to verify equal adoption percentages
-    print(f"🔍 TOU Optimizer Debug - {num_periods} periods:")
-    print(f"  Equal adoption percentage: {equal_adoption:.2f}%")
-    print(f"  Capacity thresholds: {capacity_thresholds}")
-    print(f"  Period assignments: {period_assignments}")
-    print(f"  Period assignment counts: {[period_assignments.count(i) for i in range(num_periods)]}")
-    for period in periods:
-        print(f"  {period['name']}: {period['adoption']:.2f}%")
+    # Debug output removed for production
     
     # Create visualization
     fig = _create_optimization_visualization(margin_curve_24h, hourly_capacity, period_assignments, 
