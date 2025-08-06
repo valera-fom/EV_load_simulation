@@ -1146,7 +1146,6 @@ with st.sidebar:
             
             # Update session state if changed
             if num_periods != st.session_state.tou_period_count:
-                print(f"🔄 TOU Period Count Changed: {st.session_state.tou_period_count} -> {num_periods}")
                 st.session_state.tou_period_count = num_periods
                 # Reset timeline to force regeneration with new period count
                 if 'time_of_use_timeline' in st.session_state:
@@ -1154,116 +1153,63 @@ with st.sidebar:
                 st.rerun()
             
             # Function to merge periods based on selected count
-            def merge_periods(periods, target_count):
-                if target_count == 5:
-                    # For 5 periods, add a new Period 5 with equal distribution
-                    # Keep the original 4 periods but add a new one
-                    new_periods = periods.copy()
-                    # Add Period 5 with some default hours (e.g., late night)
-                    new_periods.append({
-                        'name': 'Period 5',
-                        'color': '#9370DB',  # Purple color for Period 5
-                        'adoption': 100.0 / 5,
-                        'hours': [23, 24]  # Late night hours
-                    })
-                    # Apply equal adoption percentages for all 5 periods
-                    equal_adoption = 100.0 / 5
-                    for period in new_periods:
-                        period['adoption'] = equal_adoption
-                    return new_periods
-                elif target_count == 4:
-                    # Apply equal adoption percentages for 4 periods
-                    equal_adoption = 100.0 / 4
-                    for period in periods:
-                        period['adoption'] = equal_adoption
-                    return periods
+            def get_default_periods(target_count):
+                """Get hardcoded default periods for the specified count."""
+                if target_count == 2:
+                    return [
+                        {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 50.0, 'hours': [1, 2, 3, 4, 5, 6, 7, 8, 22, 23, 24]},  # 1-8, 22-24 AM (10h)
+                        {'name': 'Period 2', 'color': '#90EE90', 'adoption': 50.0, 'hours': [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]}  # 8-22 AM (14h)
+                    ]
                 elif target_count == 3:
-                    # Preserve first (left) two periods and merge last (right) two periods
-                    merged_periods = periods[:2]  # Keep Period 1 and Period 2
-                    merged_hours = periods[2]['hours'] + periods[3]['hours']
-                    merged_periods.append({
-                        'name': 'Period 3',
-                        'color': '#FFD700',  # Keep Period 3 color
-                        'adoption': 100.0 / 3,  # Equal adoption for 3 periods
-                        'hours': merged_hours
-                    })
-                    
-                    # Apply equal adoption percentages
-                    equal_adoption = 100.0 / 3
-                    for period in merged_periods:
-                        period['adoption'] = equal_adoption
-                    
-                    return merged_periods
-                elif target_count == 2:
-                    # Merge first two (left) and last two (right)
-                    merged_periods = []
-                    
-                    # Merge Period 1 and Period 2 (first two)
-                    merged_hours_1_2 = periods[0]['hours'] + periods[1]['hours']
-                    merged_periods.append({
-                        'name': 'Period 1',
-                        'color': '#87CEEB',  # Keep Period 1 color
-                        'adoption': 100.0 / 2,  # Equal adoption for 2 periods
-                        'hours': merged_hours_1_2
-                    })
-                    
-                    # Merge Period 3 and Period 4 (last two)
-                    merged_hours_3_4 = periods[2]['hours'] + periods[3]['hours']
-                    merged_periods.append({
-                        'name': 'Period 2',
-                        'color': '#90EE90',  # Use Period 2 color (not Period 3)
-                        'adoption': 100.0 / 2,  # Equal adoption for 2 periods
-                        'hours': merged_hours_3_4
-                    })
-                    
-                    return merged_periods
-                return periods
+                    return [
+                        {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 33.33, 'hours': [2, 3, 4, 5, 6]},  # 2-6 AM (4h)
+                        {'name': 'Period 2', 'color': '#90EE90', 'adoption': 33.33, 'hours': [1, 7, 8, 22, 23, 24]},  # 1, 6-8, 22-24 AM (5h)
+                        {'name': 'Period 3', 'color': '#FFD700', 'adoption': 33.33, 'hours': [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]}  # 8-22 AM (15h)
+                    ]
+                elif target_count == 4:
+                    return [
+                        {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25.0, 'hours': [2, 3, 4, 5, 6]},  # 2-6 AM (4h)
+                        {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25.0, 'hours': [1, 7, 8, 22, 23, 24]},  # 1, 6-8, 22-24 AM (5h)
+                        {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25.0, 'hours': [8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22]},  # 8-9, 11-18, 21-22 AM (9h)
+                        {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25.0, 'hours': [9, 10, 11, 18, 19, 20, 21]}  # 9-11, 18-21 AM (5h)
+                    ]
+                elif target_count == 5:
+                    return [
+                        {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 20.0, 'hours': [2, 3, 4, 5, 6]},  # 2-6 AM (4h)
+                        {'name': 'Period 2', 'color': '#90EE90', 'adoption': 20.0, 'hours': [1, 7, 8, 22, 23, 24]},  # 1, 6-8, 22-24 AM (5h)
+                        {'name': 'Period 3', 'color': '#FFD700', 'adoption': 20.0, 'hours': [8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22]},  # 8-9, 11-18, 21-22 AM (9h)
+                        {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 20.0, 'hours': [9, 10, 11, 18, 19, 20, 21]},  # 9-11, 18-21 AM (5h)
+                        {'name': 'Period 5', 'color': '#9370DB', 'adoption': 20.0, 'hours': [23, 24]}  # 23-24 AM (2h)
+                    ]
+                else:
+                    # Fallback to 4 periods
+                    return [
+                        {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25.0, 'hours': [2, 3, 4, 5, 6]},
+                        {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25.0, 'hours': [1, 7, 8, 22, 23, 24]},
+                        {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25.0, 'hours': [8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22]},
+                        {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25.0, 'hours': [9, 10, 11, 18, 19, 20, 21]}
+                    ]
             
             # Initialize timeline if not in session state
             if 'time_of_use_timeline' not in st.session_state:
-                base_periods = [
-                    {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
-                    {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-                    {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-                    {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
-                ]
-                
-                merged_periods = merge_periods(base_periods, num_periods)
-                
-                # Apply equal adoption percentages
-                equal_adoption = 100.0 / len(merged_periods)
-                for period in merged_periods:
-                    period['adoption'] = equal_adoption
+                default_periods = get_default_periods(num_periods)
                 
                 st.session_state.time_of_use_timeline = {
-                    'periods': merged_periods,
+                    'periods': default_periods,
                     'selected_period': 0
                 }
             
-            # Store original timeline if not already stored
-            if 'original_timeline' not in st.session_state:
-                base_periods = [
-                    {'name': 'Period 1', 'color': '#87CEEB', 'adoption': 25, 'hours': list(range(2, 6))},
-                    {'name': 'Period 2', 'color': '#90EE90', 'adoption': 25, 'hours': list(range(1, 2)) + list(range(6, 8)) + list(range(22, 25))},
-                    {'name': 'Period 3', 'color': '#FFD700', 'adoption': 25, 'hours': list(range(8, 9)) + list(range(11, 18)) + list(range(21, 22))},
-                    {'name': 'Period 4', 'color': '#FF6B6B', 'adoption': 25, 'hours': list(range(9, 11)) + list(range(18, 21))}
-                ]
+            # Always update timeline to match current period count
+            current_period_count = len(st.session_state.time_of_use_timeline['periods'])
+            if current_period_count != num_periods:
+                default_periods = get_default_periods(num_periods)
                 
-                st.session_state.original_timeline = {
-                    'periods': base_periods
-                }
-            
-            # Update timeline if period count changed
-            if len(st.session_state.time_of_use_timeline['periods']) != num_periods:
-                base_periods = st.session_state.original_timeline['periods']
-                merged_periods = merge_periods(base_periods, num_periods)
+                st.session_state.time_of_use_timeline['periods'] = default_periods
+                st.session_state.time_of_use_timeline['selected_period'] = 0
                 
-                # Apply equal adoption percentages
-                equal_adoption = 100.0 / len(merged_periods)
-                for period in merged_periods:
-                    period['adoption'] = equal_adoption
-                
-                st.session_state.time_of_use_timeline['periods'] = merged_periods
+                # Clear hour assignments to force use of hardcoded periods
+                if 'hour_assignments' in st.session_state:
+                    del st.session_state.hour_assignments
             
             timeline = st.session_state.time_of_use_timeline
             
@@ -1446,7 +1392,7 @@ with st.sidebar:
                     hour = row * 6 + col + 1
                     
                     with cols[col]:
-                        # Find which period this hour belongs to
+                        # Find which period this hour belongs to (use hardcoded periods)
                         period_idx = None
                         for j, period in enumerate(timeline['periods']):
                             if hour in period['hours']:
@@ -1458,33 +1404,18 @@ with st.sidebar:
                             current_selection = timeline['periods'][period_idx]['name']
                             bg_color = timeline['periods'][period_idx]['color']
                         else:
-                            # Default to first period if not assigned
+                            # If hour is not assigned to any period, assign it to the first period
                             current_selection = timeline['periods'][0]['name']
                             bg_color = timeline['periods'][0]['color']
-                            # Add to default period
-                            timeline['periods'][0]['hours'].append(hour)
+                            # Don't modify the hardcoded hours - just use the assignment
                         
                         # Initialize session state for hour assignments if not exists (scenario-independent)
                         if 'hour_assignments' not in st.session_state:
                             st.session_state.hour_assignments = {}
                         
-                        # Get the current period assignment for this hour (from session state or timeline)
-                        # Use timeline default if no session state assignment exists
-                        current_period_name = st.session_state.hour_assignments.get(hour, current_selection)
-                        
-                        # Find the period index for the current assignment
-                        current_period_idx = None
-                        for j, period in enumerate(timeline['periods']):
-                            if period['name'] == current_period_name:
-                                current_period_idx = j
-                                break
-                        
-                        if current_period_idx is not None:
-                            current_bg_color = timeline['periods'][current_period_idx]['color']
-                        else:
-                            # Fallback to first period if assignment not found
-                            current_bg_color = timeline['periods'][0]['color']
-                            current_period_name = timeline['periods'][0]['name']
+                        # Use the hardcoded period assignment directly (ignore session state for now)
+                        current_period_name = current_selection
+                        current_bg_color = bg_color
                         
                         # Create colored hour block FIRST (above dropdown)
                         st.markdown(f"""
