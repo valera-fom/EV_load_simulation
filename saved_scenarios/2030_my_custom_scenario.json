@@ -1,0 +1,53 @@
+{
+  "year": "2030",
+  "name": "my_custom_scenario",
+  "total_cars_million": 6.3,
+  "ev_penetration": 0.5,
+  "home_charging_percent": 0.88,
+  "avg_battery_kWh": 85.0,
+  "charging_power_kW": 11.0,
+  "initial_soc": 0.2,
+  "smart_charging_percent": 40,
+  "pv_adoption_percent": 25,
+  "grid_battery_adoption_percent": 15,
+  "v2g_adoption_percent": 15,
+  "battery_capacity": 17.5,
+  "grid_battery_capacity": 20.0,
+  "solar_energy_percent": 70,
+  "notes": "Custom scenario for 2030",
+  "time_peaks": [
+    {
+      "name": "Evening Peak",
+      "time": 19,
+      "span": 1.5,
+      "quantity": 46,
+      "enabled": true,
+      "penetration_percent": 50.0
+    }
+  ],
+  "active_strategies": [
+    "smart_charging",
+    "pv_battery",
+    "grid_battery",
+    "v2g"
+  ],
+  "optimization_params": {
+    "smart_charging_percent": 40,
+    "pv_adoption_percent": 25,
+    "battery_capacity": 17.5,
+    "max_discharge_rate": 7.0,
+    "discharge_start_hour": 18,
+    "solar_energy_percent": 70,
+    "grid_battery_adoption_percent": 15,
+    "grid_battery_capacity": 20.0,
+    "grid_battery_max_rate": 5.0,
+    "grid_battery_charge_start_hour": 7,
+    "grid_battery_charge_duration": 8,
+    "grid_battery_discharge_start_hour": 18,
+    "grid_battery_discharge_duration": 4,
+    "v2g_adoption_percent": 15,
+    "v2g_discharge_duration": 3,
+    "v2g_max_discharge_rate": 11.0,
+    "v2g_start_hour": 18
+  }
+}
