@@ -791,9 +791,11 @@ if 'show_average_line' not in st.session_state:
 if 'show_legend' not in st.session_state:
     st.session_state.show_legend = True
 if 'smooth_graph' not in st.session_state:
-    st.session_state.smooth_graph = True
+    st.session_state.smooth_graph = True  # Changed to True as requested
 if 'show_safety_margin' not in st.session_state:
     st.session_state.show_safety_margin = True
+if 'show_grid_lines' not in st.session_state:
+    st.session_state.show_grid_lines = True
 
 st.title("⚡ EV Load Forecasting")
 st.markdown("Forecast EV charging load patterns with configurable parameters")
@@ -840,6 +842,8 @@ if st.sidebar.button("⭮ Reset", type="primary", help="Reset all configuration 
             st.session_state.power_values = np.array(st.session_state.power_values)
         if 'available_load' in st.session_state and st.session_state.available_load is not None:
             st.session_state.available_load = np.array(st.session_state.available_load)
+    
+    # No need for complex battery cache clearing with simplified approach
 
 # Sidebar configuration
 # Use conditional rendering for sidebar to improve performance
@@ -4193,43 +4197,48 @@ with col1:
         
         st.success("Simulation completed successfully!")
         
-        # Graph Control Panel
+        # Graph Control Panel - Optimized for fast updates
         st.subheader("🎛️ Graph Controls")
+        
+        # Use a single row with more columns for better layout and performance
         col_controls1, col_controls2, col_controls3 = st.columns(3)
         
         with col_controls1:
-            # Batch session state access for better performance
-            ui_state = {
-                'show_battery_effects': st.session_state.get('show_battery_effects', True),
-                'show_average_line': st.session_state.get('show_average_line', True)
-            }
-            
-            show_battery_effects = st.checkbox("Show Battery Effects", 
-                                             value=ui_state['show_battery_effects'], 
+            show_battery_effects = st.checkbox("Battery Effects", 
+                                             value=st.session_state.show_battery_effects, 
                                              key="show_battery_effects",
-                                             help="Display PV battery, grid battery, and V2G effects on the graph")
-            show_average_line = st.checkbox("Show Average Line", 
-                                          value=ui_state['show_average_line'], 
+                                             help="Display PV battery, grid battery, and V2G effects on the graph",
+                                             on_change=lambda: setattr(st.session_state, 'show_battery_effects', st.session_state.show_battery_effects))
+            show_average_line = st.checkbox("Average Line", 
+                                          value=st.session_state.show_average_line, 
                                           key="show_average_line",
-                                          help="Display horizontal average line on the bottom graph")
+                                          help="Display horizontal average line on the bottom graph",
+                                          on_change=lambda: setattr(st.session_state, 'show_average_line', st.session_state.show_average_line))
         
         with col_controls2:
-            show_legend = st.checkbox("Show Legend", 
-                                    value=st.session_state.get('show_legend', True), 
+            show_legend = st.checkbox("Legend", 
+                                    value=st.session_state.show_legend, 
                                     key="show_legend",
-                                    help="Display graph legend")
-            smooth_graph = st.checkbox("Smooth Graph", 
-                                     value=st.session_state.get('smooth_graph', False), 
+                                    help="Display graph legend",
+                                    on_change=lambda: setattr(st.session_state, 'show_legend', st.session_state.show_legend))
+            smooth_graph = st.checkbox("Smooth Lines", 
+                                     value=st.session_state.smooth_graph, 
                                      key="smooth_graph",
-                                     help="Use smooth lines instead of stepped lines for the graph")
+                                     help="Use smooth lines instead of stepped lines for the graph",
+                                     on_change=lambda: setattr(st.session_state, 'smooth_graph', st.session_state.smooth_graph))
         
         with col_controls3:
-            show_safety_margin = st.checkbox("Show Safety Margin", 
-                                           value=st.session_state.get('show_safety_margin', True), 
+            show_safety_margin = st.checkbox("Safety Margin", 
+                                           value=st.session_state.show_safety_margin, 
                                            key="show_safety_margin",
-                                           help="Display 20% safety margin line")
-        
-        
+                                           help="Display 20% safety margin line",
+                                           on_change=lambda: setattr(st.session_state, 'show_safety_margin', st.session_state.show_safety_margin))
+            show_grid_lines = st.checkbox("Grid Lines", 
+                                        value=st.session_state.show_grid_lines, 
+                                        key="show_grid_lines",
+                                        help="Display grid lines on the graphs",
+                                        on_change=lambda: setattr(st.session_state, 'show_grid_lines', st.session_state.show_grid_lines))
+       
     
         
         # Use containers for better performance and selective updates
@@ -4319,57 +4328,15 @@ with col1:
             else:
                 ax1.step(grid_time_day_hour, plot_adjusted_grid_limit, where='post', color='red', linestyle='--', alpha=0.7, label='Grid Limit')
         
-        # 2. Battery Effects (charging and discharging)
+        # 2. Battery Effects (charging and discharging) - Simplified and more reliable
         if show_battery_effects and plot_original_grid_limit is not None:
-            # Use cached battery effects data if available, otherwise fall back to results
-            battery_effects_data = None
-            
-            # Try to get cached battery effects data
-            if ('power_values' in st.session_state and st.session_state.power_values is not None and
-                'active_strategies' in st.session_state and 'optimization_strategy' in st.session_state):
-                
-                # Get the original number of EVs for battery effects
-                if 'time_peaks' in st.session_state and st.session_state.time_peaks:
-                    original_total_evs = sum(peak.get('quantity', 0) for peak in st.session_state.time_peaks)
-                elif 'ev_calculator' in st.session_state and 'total_evs' in st.session_state.ev_calculator:
-                    original_total_evs = st.session_state.ev_calculator['total_evs']
-                else:
-                    original_total_evs = 32  # Default fallback
-                
-                # Get power values for caching
-                if 'synthetic_load_curve' in st.session_state and st.session_state.synthetic_load_curve is not None:
-                    power_values = st.session_state.synthetic_load_curve
-                elif 'available_load' in st.session_state and st.session_state.available_load is not None:
-                    power_values = st.session_state.available_load
-                else:
-                    power_values = st.session_state.power_values
-                
-                # Calculate cached battery effects with progress indicator
-                with st.spinner("🔄 Calculating battery effects..."):
-                    battery_effects_data = calculate_battery_effects_cached(
-                        power_values=power_values,
-                        active_strategies=st.session_state.active_strategies,
-                        optimization_strategy=st.session_state.optimization_strategy,
-                        original_total_evs=original_total_evs,
-                        random_seed=st.session_state.get('random_seed', 42)
-                    )
-            
-            # Use cached data if available, otherwise fall back to results
-            if battery_effects_data is not None:
-                pv_charge = battery_effects_data['pv_battery_charge_curve'] if 'pv_battery' in st.session_state.get('active_strategies', []) else None
-                grid_discharge = battery_effects_data['grid_battery_discharge_curve'] if 'grid_battery' in st.session_state.get('active_strategies', []) else None
-                v2g_discharge = battery_effects_data['v2g_discharge_curve'] if 'v2g' in st.session_state.get('active_strategies', []) else None
-                grid_charge = battery_effects_data['grid_battery_charge_curve'] if 'grid_battery' in st.session_state.get('active_strategies', []) else None
-                pv_direct_support = battery_effects_data['pv_direct_support_curve'] if 'pv_battery' in st.session_state.get('active_strategies', []) else None
-                pv_battery_discharge = battery_effects_data['pv_battery_discharge_curve'] if 'pv_battery' in st.session_state.get('active_strategies', []) else None
-            else:
-                # Fall back to original results data
-                pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
-                grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
-                v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
-                grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
-                pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
-                pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
+            # Use results data directly for better reliability
+            pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
+            grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
+            v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
+            grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
+            pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
+            pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
             
             # Resample battery effects data if smooth_graph is enabled
             if smooth_graph:
@@ -4473,54 +4440,45 @@ with col1:
             
             # Add battery effects to the maximum calculation
             if show_battery_effects:
-                # PV direct system support
-                pv_direct_support = results.get('pv_direct_support_curve') if results.get('pv_battery_applied', False) else None
-                if pv_direct_support is not None:
+                # Use the same battery effects variables defined earlier for consistency
+                if pv_direct_support is not None and np.any(pv_direct_support > 0):
                     pv_direct_support_plot = pv_direct_support[:max_plot_points]
                     if smooth_graph:
                         pv_direct_support_plot = pv_direct_support_plot[::10]
                     max_values.append(np.max(plot_original_grid_limit + pv_direct_support_plot))
                 
-                # PV battery charging
-                pv_charge = results.get('pv_battery_charge_curve') if results.get('pv_battery_applied', False) else None
-                if pv_charge is not None:
+                if pv_charge is not None and np.any(pv_charge > 0):
                     pv_charge_plot = pv_charge[:max_plot_points]
                     if smooth_graph:
                         pv_charge_plot = pv_charge_plot[::10]
                     # Calculate base level for PV charging
                     base_level = plot_original_grid_limit
-                    if pv_direct_support is not None:
+                    if pv_direct_support is not None and np.any(pv_direct_support > 0):
                         pv_direct_support_plot = pv_direct_support[:max_plot_points]
                         if smooth_graph:
                             pv_direct_support_plot = pv_direct_support_plot[::10]
                         base_level = plot_original_grid_limit + pv_direct_support_plot
                     max_values.append(np.max(base_level + pv_charge_plot))
                 
-                # Grid battery charging (reduces capacity, so check minimum)
-                grid_charge = results.get('grid_battery_charge_curve') if results.get('grid_battery_applied', False) else None
-                if grid_charge is not None:
+                if grid_charge is not None and np.any(grid_charge > 0):
                     grid_charge_plot = grid_charge[:max_plot_points]
                     if smooth_graph:
                         grid_charge_plot = grid_charge_plot[::10]
                     min_y = min(min_y, np.min(plot_original_grid_limit - grid_charge_plot))
                 
                 # Battery discharge effects (increases capacity)
-                pv_battery_discharge = results.get('pv_battery_discharge_curve') if results.get('pv_battery_applied', False) else None
-                grid_discharge = results.get('grid_battery_discharge_curve') if results.get('grid_battery_applied', False) else None
-                v2g_discharge = results.get('v2g_discharge_curve') if results.get('v2g_applied', False) else None
-                
                 combined_discharge = np.zeros_like(plot_original_grid_limit)
-                if pv_battery_discharge is not None:
+                if pv_battery_discharge is not None and np.any(pv_battery_discharge > 0):
                     pv_discharge_plot = pv_battery_discharge[:max_plot_points]
                     if smooth_graph:
                         pv_discharge_plot = pv_discharge_plot[::10]
                     combined_discharge += pv_discharge_plot
-                if grid_discharge is not None:
+                if grid_discharge is not None and np.any(grid_discharge > 0):
                     grid_discharge_plot = grid_discharge[:max_plot_points]
                     if smooth_graph:
                         grid_discharge_plot = grid_discharge_plot[::10]
                     combined_discharge += grid_discharge_plot
-                if v2g_discharge is not None:
+                if v2g_discharge is not None and np.any(v2g_discharge > 0):
                     v2g_discharge_plot = v2g_discharge[:max_plot_points]
                     if smooth_graph:
                         v2g_discharge_plot = v2g_discharge_plot[::10]
@@ -4555,7 +4513,8 @@ with col1:
         ax1.set_ylabel('Power (kW)')
         mode_text = "Grid Constrained" if results['grid_mode'] == "Grid Constrained" else "Reference Only"
         ax1.set_title(f'EV Charging Load vs Grid Capacity ({mode_text})')
-        ax1.grid(True, alpha=0.3)
+        if show_grid_lines:
+            ax1.grid(True, alpha=0.3)
         
         # Create custom x-axis labels in day-hour format
         max_hours = int(np.ceil(time_day_hour[-1])) if len(time_day_hour) > 0 else 48
@@ -4636,7 +4595,8 @@ with col1:
         ax2.set_xlabel('Time (Day-Hour)')
         ax2.set_ylabel('Available Capacity (kW)')
         ax2.set_title('Available Grid Capacity')
-        ax2.grid(True, alpha=0.3)
+        if show_grid_lines:
+            ax2.grid(True, alpha=0.3)
         
         # Use the same x-axis format for bottom plot
         ax2.set_xticks(x_ticks)
@@ -4980,11 +4940,7 @@ def extract_margin_curve_from_current_data():
         st.error(f"Error extracting margin curve: {e}")
         return None
 
-# Add this new cached function after the existing cached functions (around line 220)
-
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
-@performance_monitor
-def calculate_battery_effects_cached(power_values, active_strategies, optimization_strategy, original_total_evs, random_seed):
+# Removed duplicate battery effects function - using results data directly for better reliability
     """
     Calculate battery effects using vectorized operations for better performance.
     This function is cached to avoid recalculating battery effects on every rerun.
