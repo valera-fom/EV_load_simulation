@@ -33,6 +33,8 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
 - **Interactive Charts** - Real-time visualization of load curves and optimization effects
 - **Professional PDF Reports** - Generate detailed analysis reports with customizable content
 - **Scenario Management** - Save and load different simulation configurations
+- **Custom Scenarios** - Create and save custom simulation scenarios with all parameters
+- **Graph Controls** - Interactive controls for battery effects, legend, grid lines, and smoothing
 
 ## 🚀 Quick Start
 
@@ -75,8 +77,14 @@ A comprehensive Streamlit application for simulating Electric Vehicle (EV) charg
    - Enable PV + Battery, Grid Battery, or V2G strategies
    - Configure strategy-specific parameters
 
-5. **Run Simulation**
+5. **Custom Scenarios** (Optional)
+   - Create custom scenarios with all simulation parameters
+   - Save scenarios to JSON files for future use
+   - Load and apply custom scenarios from the dropdown
+
+6. **Run Simulation**
    - Click 'Run Simulation' to execute analysis
+   - Use graph controls to customize visualization
    - View results and generate PDF reports
 
 ## 📁 Project Structure
@@ -97,6 +105,7 @@ EV_simulation/
 ├── portable_models/           # Trained models for synthetic data generation
 │   ├── weekday/              # Weekday load patterns
 │   └── weekend/              # Weekend load patterns
+├── saved_scenarios/          # Custom scenarios saved as JSON files
 ├── EV.py                     # EV models and fleet configuration
 ├── charger.py                # Charging infrastructure models
 ├── sim_setup.py             # Simulation configuration and setup
@@ -116,7 +125,7 @@ EV_simulation/
 - **Multi-day Analysis** - Extended 48-hour simulation capabilities
 
 ### Data Processing
-- **Excel File Import** - Support for datetime and load data columns
+- **Excel File Import** - Support for datetime and load data columns using openpyxl
 - **Synthetic Generation** - AI-powered load curve generation using trained models
 - **Data Validation** - Automatic validation of uploaded data formats
 - **Grid Profile Processing** - Capacity analysis and margin curve calculation
@@ -129,9 +138,11 @@ EV_simulation/
 
 ### Output & Visualization
 - **Interactive Plots** - Real-time load curve visualization with optimization effects
+- **Graph Controls** - Toggle battery effects, legend, grid lines, and smoothing
 - **PDF Report Generation** - Professional analysis reports with customizable themes
 - **Data Export** - Simulation results and configuration export
 - **Session Management** - Save and restore simulation configurations
+- **Custom Scenarios** - JSON-based scenario storage and loading
 
 ## 🎯 Use Cases
 
@@ -160,6 +171,19 @@ EV_simulation/
 - **Time-of-Use Pattern Simulation** - Smart charging behavior modeling
 - **Maximum EV Capacity Calculation** - Infrastructure constraint analysis
 - **Strategy Impact Comparison** - TOU, PV, V2G, and grid battery effects
+- **Custom Scenario Management** - Save and load complete simulation configurations
+
+## 🎛️ Graph Controls
+
+The application includes interactive graph controls for enhanced visualization:
+
+- **🔋 Battery Effects** - Toggle display of PV battery, grid battery, and V2G effects
+- **📋 Legend** - Show/hide graph legend
+- **🔄 Smooth Lines** - Switch between smooth and stepped line visualization
+- **🛡️ Safety Margin** - Display 20% safety margin line
+- **📐 Grid Lines** - Show/hide grid lines on graphs
+- **📊 Average Line** - Display horizontal average line on capacity graph
+- **🔄 Refresh Graph** - Manually refresh graph display
 
 ## 🤝 Contributing
 
@@ -182,6 +206,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Contact
 
 For questions, support, or contributions, please open an issue on GitHub or contact the development team.
+
+**Email:** valerii.fomenko@ukr.net
 
 
  
