@@ -815,9 +815,14 @@ with sidebar_container:
                            value=int(st.session_state.ev_soc * 100), step=5,
                            help="Initial SOC of arriving EVs (affects how much they need to charge)")
         
+        # Update session state with new EV values
+        st.session_state.dynamic_ev['capacity'] = ev_capacity
+        st.session_state.dynamic_ev['AC'] = ev_ac
+        st.session_state.ev_soc = ev_soc / 100
+        
         # Clear simulation results if parameters changed
-        if (ev_capacity != st.session_state.dynamic_ev['capacity'] or 
-            ev_ac != st.session_state.dynamic_ev['AC'] or
+        if (ev_capacity != st.session_state.dynamic_ev.get('capacity', ev_capacity) or 
+            ev_ac != st.session_state.dynamic_ev.get('AC', ev_ac) or
             ev_soc/100 != st.session_state.ev_soc):
             st.session_state.simulation_just_run = False
             st.session_state.simulation_run = False  # Prevent automatic reruns
@@ -856,7 +861,8 @@ with sidebar_container:
     # Time Control Menu
     with st.expander("⏰ Time Control", expanded=False):
         st.write("**Simulation Duration:**")
-        sim_duration = st.slider("Duration (hours)", min_value=1, max_value=48, value=36)
+        sim_duration = st.slider("Duration (hours)", min_value=1, max_value=48,
+                                value=st.session_state.get('sim_duration', 36))
         
         # Clear simulation results if duration changed
         if sim_duration != st.session_state.get('sim_duration', 36):
@@ -2991,8 +2997,8 @@ with sidebar_container:
                                 margin_line = available_load * capacity_margin
                                 
                                 # Plot the data
-                                ax.plot(time_hours, available_load, linewidth=1, alpha=0.8, color='blue', label='Available Load')
-                                ax.plot(time_hours, margin_line, linewidth=1, alpha=0.8, color='red', label='Margin')
+                                ax.plot(time_hours, available_load, linewidth=1, alpha=0.8, color='red', label='Available Load')
+                                ax.plot(time_hours, margin_line, linewidth=1, alpha=0.8, color='orange', label='Margin')
                                 ax.set_title("Dataset Load Curve Preview")
                                 ax.set_xlabel("Time (hours)")
                                 ax.set_ylabel("Load (kW)")
