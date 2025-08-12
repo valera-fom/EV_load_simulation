@@ -62,4 +62,4 @@ Thumbs.db
 *.temp
 
 # Session Manager
-saved_sessions/
+# saved_sessions/  # Commented out to allow pushing to git
