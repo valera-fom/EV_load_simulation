@@ -53,6 +53,7 @@ Thumbs.db
 *.xls
 *.db
 *.sqlite
+*.json
 
 # Logs
 *.log
