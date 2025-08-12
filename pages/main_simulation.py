@@ -4431,13 +4431,12 @@ with col1:
         else:
             ax1.step(time_day_hour, plot_load_curve, where='post', color='blue', linewidth=2, label='EV Load')
         
-        # Ensure y-axis shows both lines
+        # Calculate y-axis limits after all plotting is complete
+        min_y = 0
+        max_values = [np.max(plot_load_curve)]
+        
         if results['grid_limit'] is not None and plot_grid_limit is not None and plot_original_grid_limit is not None:
-            min_y = 0
-            
-            # Calculate maximum values including all battery effects
-            max_values = [np.max(plot_grid_limit), np.max(plot_original_grid_limit), np.max(plot_load_curve)]
-            
+            max_values.extend([np.max(plot_grid_limit), np.max(plot_original_grid_limit)])
             # Add battery effects to the maximum calculation
             if show_battery_effects:
                 # Use the same battery effects variables defined earlier for consistency
@@ -4445,7 +4444,9 @@ with col1:
                     pv_direct_support_plot = pv_direct_support[:max_plot_points]
                     if smooth_graph:
                         pv_direct_support_plot = pv_direct_support_plot[::10]
-                    max_values.append(np.max(plot_original_grid_limit + pv_direct_support_plot))
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(pv_direct_support_plot) == len(plot_original_grid_limit):
+                        max_values.append(np.max(plot_original_grid_limit + pv_direct_support_plot))
                 
                 if pv_charge is not None and np.any(pv_charge > 0):
                     pv_charge_plot = pv_charge[:max_plot_points]
@@ -4457,14 +4458,20 @@ with col1:
                         pv_direct_support_plot = pv_direct_support[:max_plot_points]
                         if smooth_graph:
                             pv_direct_support_plot = pv_direct_support_plot[::10]
-                        base_level = plot_original_grid_limit + pv_direct_support_plot
-                    max_values.append(np.max(base_level + pv_charge_plot))
+                        # Ensure arrays have the same length before arithmetic operations
+                        if len(pv_direct_support_plot) == len(plot_original_grid_limit):
+                            base_level = plot_original_grid_limit + pv_direct_support_plot
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(pv_charge_plot) == len(base_level):
+                        max_values.append(np.max(base_level + pv_charge_plot))
                 
                 if grid_charge is not None and np.any(grid_charge > 0):
                     grid_charge_plot = grid_charge[:max_plot_points]
                     if smooth_graph:
                         grid_charge_plot = grid_charge_plot[::10]
-                    min_y = min(min_y, np.min(plot_original_grid_limit - grid_charge_plot))
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(grid_charge_plot) == len(plot_original_grid_limit):
+                        min_y = min(min_y, np.min(plot_original_grid_limit - grid_charge_plot))
                 
                 # Battery discharge effects (increases capacity)
                 combined_discharge = np.zeros_like(plot_original_grid_limit)
@@ -4472,21 +4479,30 @@ with col1:
                     pv_discharge_plot = pv_battery_discharge[:max_plot_points]
                     if smooth_graph:
                         pv_discharge_plot = pv_discharge_plot[::10]
-                    combined_discharge += pv_discharge_plot
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(pv_discharge_plot) == len(combined_discharge):
+                        combined_discharge += pv_discharge_plot
                 if grid_discharge is not None and np.any(grid_discharge > 0):
                     grid_discharge_plot = grid_discharge[:max_plot_points]
                     if smooth_graph:
                         grid_discharge_plot = grid_discharge_plot[::10]
-                    combined_discharge += grid_discharge_plot
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(grid_discharge_plot) == len(combined_discharge):
+                        combined_discharge += grid_discharge_plot
                 if v2g_discharge is not None and np.any(v2g_discharge > 0):
                     v2g_discharge_plot = v2g_discharge[:max_plot_points]
                     if smooth_graph:
                         v2g_discharge_plot = v2g_discharge_plot[::10]
-                    combined_discharge += v2g_discharge_plot
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(v2g_discharge_plot) == len(combined_discharge):
+                        combined_discharge += v2g_discharge_plot
                 
                 if np.any(combined_discharge > 0):
-                    max_values.append(np.max(plot_original_grid_limit + combined_discharge))
+                    # Ensure arrays have the same length before arithmetic operations
+                    if len(combined_discharge) == len(plot_original_grid_limit):
+                        max_values.append(np.max(plot_original_grid_limit + combined_discharge))
             
+            # Calculate final y-axis limits
             max_y = max(max_values) * 1.1
             
             # Safety checks to ensure reasonable y-axis limits
@@ -4502,9 +4518,8 @@ with col1:
             ax1.set_ylim(min_y, max_y)
         else:
             # Set y-axis limits based only on load curve if no grid data
-            min_y = 0
             max_y = np.max(plot_load_curve) * 1.1
-            ax1.set_ylim(min_y, max_y)
+            ax1.set_ylim(0, max_y)
         
         if show_legend:
             ax1.legend(loc='lower left', fontsize=12, frameon=True)
